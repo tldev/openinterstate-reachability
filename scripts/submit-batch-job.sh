@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
 #
 # Submit an AWS Batch job with the EBS volume ID passed as an
-# environment variable. The job definition already includes the
-# host volume mount (/mnt/osrm -> /mnt/osrm). The actual EBS
-# attachment to the EC2 instance is handled by a launch template
-# or instance user data in the Batch compute environment — this
-# script passes the VOLUME_ID so the instance can attach the
-# correct volume at boot.
+# environment variable. The container runs privileged and uses
+# mount-ebs.sh to self-attach the volume via IMDSv2 at startup,
+# then unmount-ebs.sh detaches it on exit.
 #
 # Usage: submit-batch-job.sh <job-definition> <job-queue> <volume-id> <pipeline-run-id>
 # Outputs the job ID to stdout (logs go to stderr).

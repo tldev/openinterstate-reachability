@@ -49,6 +49,7 @@ if [[ "$ATTACH_STATE" == "attached" ]]; then
     --region "$REGION"
 
   # Wait for detachment
+  DETACHED=false
   for i in $(seq 1 30); do
     STATE=$(aws ec2 describe-volumes \
       --volume-ids "$VOLUME_ID" \
@@ -57,10 +58,14 @@ if [[ "$ATTACH_STATE" == "attached" ]]; then
       --output text 2>/dev/null || echo "")
     if [[ "$STATE" == "available" ]]; then
       log "Volume detached"
+      DETACHED=true
       break
     fi
     sleep 2
   done
+  if [[ "$DETACHED" != "true" ]]; then
+    log "WARNING: Volume detach did not complete within 60 seconds (last state: ${STATE})"
+  fi
 else
   log "Volume not attached to this instance (state: ${ATTACH_STATE:-none}), skipping detach"
 fi

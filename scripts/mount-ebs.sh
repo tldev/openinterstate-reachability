@@ -5,7 +5,8 @@
 # formats if needed, and mounts to the specified path.
 #
 # Usage: mount-ebs.sh <volume-id> <mount-path>
-# Requires: privileged container, Batch job role with EC2 permissions
+# Requires: privileged container, Batch job role with EC2 permissions,
+#           HttpPutResponseHopLimit >= 2 on the instance launch template.
 #
 set -euo pipefail
 
@@ -24,7 +25,7 @@ INSTANCE_ID=$(curl -sf "http://169.254.169.254/latest/meta-data/instance-id" \
   -H "X-aws-ec2-metadata-token: $TOKEN")
 log "Running on instance ${INSTANCE_ID}"
 
-# ─── Check if volume is already attached to this instance ────────
+# ─── Attach volume if not already attached to this instance ──────
 CURRENT_STATE=$(aws ec2 describe-volumes \
   --volume-ids "$VOLUME_ID" \
   --region "$REGION" \
@@ -52,7 +53,6 @@ else
     sleep 5
   done
 
-  # ─── Attach volume ───────────────────────────────────────────
   log "Attaching volume ${VOLUME_ID} to ${INSTANCE_ID} as ${DEVICE}..."
   aws ec2 attach-volume \
     --volume-id "$VOLUME_ID" \
@@ -78,40 +78,33 @@ else
     sleep 2
   done
   log "Volume attached"
-
-  # Wait for device to appear
-  REAL_DEVICE="$DEVICE"
-  # AWS may map xvdf to nvme* on nitro instances
-  for i in $(seq 1 15); do
-    if [[ -b "$DEVICE" ]]; then
-      REAL_DEVICE="$DEVICE"
-      break
-    fi
-    # Check for NVMe mapping
-    NVME_DEV=$(lsblk -o NAME,SERIAL -dpn 2>/dev/null | grep "${VOLUME_ID//-/}" | awk '{print $1}' || true)
-    if [[ -n "$NVME_DEV" && -b "$NVME_DEV" ]]; then
-      REAL_DEVICE="$NVME_DEV"
-      break
-    fi
-    if [[ $i -eq 15 ]]; then
-      log "ERROR: Block device not found after attachment"
-      lsblk >&2
-      exit 1
-    fi
-    sleep 2
-  done
-  log "Block device: ${REAL_DEVICE}"
 fi
 
-# ─── Determine actual device path ────────────────────────────────
-if [[ -z "${REAL_DEVICE:-}" ]]; then
+# ─── Discover block device ───────────────────────────────────────
+# Always run device discovery (handles both fresh-attach and already-attached)
+# AWS Nitro instances map xvd* to nvme*; match by volume serial number
+log "Discovering block device..."
+REAL_DEVICE=""
+for i in $(seq 1 15); do
   if [[ -b "$DEVICE" ]]; then
     REAL_DEVICE="$DEVICE"
-  else
-    NVME_DEV=$(lsblk -o NAME,SERIAL -dpn 2>/dev/null | grep "${VOLUME_ID//-/}" | awk '{print $1}' || true)
-    REAL_DEVICE="${NVME_DEV:-$DEVICE}"
+    break
   fi
-fi
+  # NVMe mapping: serial contains volume ID without dashes
+  NVME_DEV=$(lsblk -o NAME,SERIAL -dpn 2>/dev/null \
+    | grep "${VOLUME_ID//-/}" | awk '{print $1}' || true)
+  if [[ -n "$NVME_DEV" && -b "$NVME_DEV" ]]; then
+    REAL_DEVICE="$NVME_DEV"
+    break
+  fi
+  if [[ $i -eq 15 ]]; then
+    log "ERROR: Block device not found after 30 seconds"
+    lsblk >&2
+    exit 1
+  fi
+  sleep 2
+done
+log "Block device: ${REAL_DEVICE}"
 
 # ─── Format if no filesystem ─────────────────────────────────────
 if ! blkid "$REAL_DEVICE" >/dev/null 2>&1; then

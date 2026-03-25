@@ -13,8 +13,12 @@ EBS_VOLUME_ID="${EBS_VOLUME_ID:?EBS_VOLUME_ID must be set}"
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 log() { echo "[${SCRIPT_NAME}][$(date -u +%FT%TZ)] $*"; }
-trap 'log "ERROR: osm-build failed at line $LINENO (exit code $?)"; bash "${SCRIPTS_DIR}/unmount-ebs.sh" "$EBS_VOLUME_ID" "$OSRM_DIR" || true' ERR
-trap 'bash "${SCRIPTS_DIR}/unmount-ebs.sh" "$EBS_VOLUME_ID" "$OSRM_DIR" || true' EXIT
+
+cleanup() {
+  log "Cleaning up..."
+  bash "${SCRIPTS_DIR}/unmount-ebs.sh" "$EBS_VOLUME_ID" "$OSRM_DIR" || true
+}
+trap cleanup EXIT
 
 log "Starting osm-build pipeline"
 
