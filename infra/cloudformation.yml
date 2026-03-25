@@ -1,0 +1,409 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Pike Reachability pipeline infrastructure.
+  Batch compute environment, job definitions, S3 staging bucket,
+  IAM roles (Batch + GHA OIDC), and CloudWatch billing alarm.
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Default: tldev
+    Description: GitHub organization for OIDC trust policy
+
+  GitHubRepo:
+    Type: String
+    Default: pike-reachability
+    Description: GitHub repository name for OIDC trust policy
+
+  AlarmEmail:
+    Type: String
+    Description: Email address for billing alarm notifications
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for Batch compute environment
+
+  Subnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets for Batch compute environment (must be in us-east-1)
+
+Resources:
+  # ─── Security Group ───────────────────────────────────────────────
+  BatchSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Pike Reachability Batch - outbound only
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound
+      Tags:
+        - Key: project
+          Value: pike-reachability
+
+  # ─── S3 Staging Bucket ───────────────────────────────────────────
+  StagingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: pike-reachability-staging
+      LifecycleConfiguration:
+        Rules:
+          - Id: AutoDeleteAfter7Days
+            Status: Enabled
+            ExpirationInDays: 7
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: project
+          Value: pike-reachability
+
+  # ─── IAM: Batch Job Role ─────────────────────────────────────────
+  BatchJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: pike-reachability-batch-job-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: pike-reachability-batch-job-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: S3StagingWrite
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt StagingBucket.Arn
+                  - !Sub "${StagingBucket.Arn}/*"
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  # ─── IAM: Batch Execution Role (ECS task execution) ──────────────
+  BatchExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: pike-reachability-batch-execution-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # ─── IAM: Batch Service Role ─────────────────────────────────────
+  BatchServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: pike-reachability-batch-service-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: batch.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
+
+  # ─── IAM: GHA OIDC Role ─────────────────────────────────────────
+  GHAOIDCRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: pike-reachability-gha-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": sts.amazonaws.com
+              StringLike:
+                "token.actions.githubusercontent.com:sub":
+                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/main"
+                  - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/tags/*"
+      Policies:
+        - PolicyName: pike-reachability-gha-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BatchSubmitAndDescribe
+                Effect: Allow
+                Action:
+                  - batch:SubmitJob
+                  - batch:DescribeJobs
+                  - batch:TerminateJob
+                Resource: "*"
+              - Sid: EBSManagement
+                Effect: Allow
+                Action:
+                  - ec2:CreateVolume
+                  - ec2:DeleteVolume
+                  - ec2:AttachVolume
+                  - ec2:DetachVolume
+                  - ec2:DescribeVolumes
+                  - ec2:CreateTags
+                Resource: "*"
+              - Sid: S3StagingAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                Resource:
+                  - !GetAtt StagingBucket.Arn
+                  - !Sub "${StagingBucket.Arn}/*"
+
+  # ─── Batch Compute Environments ──────────────────────────────────
+  # ON_DEMAND for osm-build (not resumable, can't tolerate interruption)
+  OnDemandComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      ComputeEnvironmentName: pike-reachability-compute-ondemand
+      Type: MANAGED
+      State: ENABLED
+      ServiceRole: !GetAtt BatchServiceRole.Arn
+      ComputeResources:
+        Type: EC2
+        AllocationStrategy: BEST_FIT_PROGRESSIVE
+        MinvCpus: 0
+        MaxvCpus: 16
+        InstanceTypes:
+          - r6i.2xlarge
+        Subnets: !Ref Subnets
+        SecurityGroupIds:
+          - !Ref BatchSecurityGroup
+        InstanceRole: !Ref BatchInstanceProfile
+        Tags:
+          project: pike-reachability
+
+  # SPOT for scoring (resumable via upsert + snap cache)
+  SpotComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      ComputeEnvironmentName: pike-reachability-compute-spot
+      Type: MANAGED
+      State: ENABLED
+      ServiceRole: !GetAtt BatchServiceRole.Arn
+      ComputeResources:
+        Type: SPOT
+        AllocationStrategy: SPOT_CAPACITY_OPTIMIZED
+        SpotIamFleetRole: !GetAtt SpotFleetRole.Arn
+        BidPercentage: 100
+        MinvCpus: 0
+        MaxvCpus: 16
+        InstanceTypes:
+          - r6i.xlarge
+        Subnets: !Ref Subnets
+        SecurityGroupIds:
+          - !Ref BatchSecurityGroup
+        InstanceRole: !Ref BatchInstanceProfile
+        Tags:
+          project: pike-reachability
+
+  SpotFleetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: pike-reachability-spot-fleet-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: spotfleet.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2SpotFleetTaggingRole
+
+  BatchInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: pike-reachability-batch-instance-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+
+  BatchInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: pike-reachability-batch-instance-profile
+      Roles:
+        - !Ref BatchInstanceRole
+
+  # ─── Batch Job Queues ────────────────────────────────────────────
+  OnDemandJobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      JobQueueName: pike-reachability-queue-ondemand
+      State: ENABLED
+      Priority: 1
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref OnDemandComputeEnvironment
+
+  SpotJobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      JobQueueName: pike-reachability-queue-spot
+      State: ENABLED
+      Priority: 1
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref SpotComputeEnvironment
+
+  # ─── Batch Job Definition: osm-build ─────────────────────────────
+  OsmBuildJobDefinition:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      JobDefinitionName: pike-reachability-osm-build
+      Type: container
+      ContainerProperties:
+        Image: !Sub "ghcr.io/${GitHubOrg}/${GitHubRepo}:latest"
+        Vcpus: 8
+        Memory: 61440
+        JobRoleArn: !GetAtt BatchJobRole.Arn
+        ExecutionRoleArn: !GetAtt BatchExecutionRole.Arn
+        Command:
+          - /app/scripts/osm-build.sh
+        Environment:
+          - Name: S3_BUCKET
+            Value: !Ref StagingBucket
+        MountPoints:
+          - ContainerPath: /mnt/osrm
+            SourceVolume: osrm-data
+        Volumes:
+          - Name: osrm-data
+            Host:
+              SourcePath: /mnt/osrm
+      Timeout:
+        AttemptDurationSeconds: 28800
+      RetryStrategy:
+        Attempts: 1
+
+  # ─── Batch Job Definition: score ──────────────────────────────────
+  ScoreJobDefinition:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      JobDefinitionName: pike-reachability-score
+      Type: container
+      ContainerProperties:
+        Image: !Sub "ghcr.io/${GitHubOrg}/${GitHubRepo}:latest"
+        Vcpus: 4
+        Memory: 28672
+        JobRoleArn: !GetAtt BatchJobRole.Arn
+        ExecutionRoleArn: !GetAtt BatchExecutionRole.Arn
+        Command:
+          - /app/scripts/score.sh
+        Environment:
+          - Name: S3_BUCKET
+            Value: !Ref StagingBucket
+        MountPoints:
+          - ContainerPath: /mnt/osrm
+            SourceVolume: osrm-data
+        Volumes:
+          - Name: osrm-data
+            Host:
+              SourcePath: /mnt/osrm
+      Timeout:
+        AttemptDurationSeconds: 21600
+      RetryStrategy:
+        Attempts: 3
+
+  # ─── CloudWatch Billing Alarm ─────────────────────────────────────
+  BillingAlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: pike-reachability-billing-alarm
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlarmEmail
+
+  BillingAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: pike-reachability-cost-alarm
+      AlarmDescription: >
+        Alert when estimated monthly charges exceed $50
+        for pike-reachability resources.
+      Namespace: AWS/Billing
+      MetricName: EstimatedCharges
+      Statistic: Maximum
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 50
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      AlarmActions:
+        - !Ref BillingAlarmTopic
+      TreatMissingData: notBreaching
+
+Outputs:
+  OnDemandComputeEnvironmentArn:
+    Description: On-demand Batch compute environment ARN
+    Value: !Ref OnDemandComputeEnvironment
+
+  SpotComputeEnvironmentArn:
+    Description: Spot Batch compute environment ARN
+    Value: !Ref SpotComputeEnvironment
+
+  OnDemandJobQueueArn:
+    Description: On-demand Batch job queue ARN (for osm-build)
+    Value: !Ref OnDemandJobQueue
+
+  SpotJobQueueArn:
+    Description: Spot Batch job queue ARN (for scoring)
+    Value: !Ref SpotJobQueue
+
+  OsmBuildJobDefinitionArn:
+    Description: osm-build job definition ARN
+    Value: !Ref OsmBuildJobDefinition
+
+  ScoreJobDefinitionArn:
+    Description: score job definition ARN
+    Value: !Ref ScoreJobDefinition
+
+  StagingBucketName:
+    Description: S3 staging bucket name
+    Value: !Ref StagingBucket
+
+  GHAOIDCRoleArn:
+    Description: GHA OIDC role ARN (set as AWS_ROLE_ARN secret in GitHub)
+    Value: !GetAtt GHAOIDCRole.Arn
+
+  BatchJobRoleArn:
+    Description: Batch job role ARN
+    Value: !GetAtt BatchJobRole.Arn
+
+  BillingAlarmTopicArn:
+    Description: SNS topic for billing alarm notifications
+    Value: !Ref BillingAlarmTopic
