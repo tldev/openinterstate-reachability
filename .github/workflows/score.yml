@@ -9,6 +9,10 @@ on:
         description: "OpenInterstate release tag (optional, uses latest if empty)"
         required: false
         type: string
+      ebs_volume_id:
+        description: "Reuse an existing EBS volume with OSRM data (skips osm-build)"
+        required: false
+        type: string
 
 permissions:
   id-token: write
@@ -81,6 +85,7 @@ jobs:
           echo "Staged OI release to ${S3_PREFIX}/oi-release/"
 
       - name: Determine availability zone
+        if: ${{ !inputs.ebs_volume_id }}
         id: az
         run: |
           # Pick the first subnet's AZ from the Batch compute environment
@@ -101,15 +106,28 @@ jobs:
 
       # ─── Create EBS Volume ─────────────────────────────────────
       - name: Create ephemeral EBS volume
-        id: ebs
+        if: ${{ !inputs.ebs_volume_id }}
+        id: ebs-create
         run: |
           VOLUME_ID=$(bash scripts/create-ebs.sh \
             "${{ steps.az.outputs.az }}" \
             "${{ steps.run-id.outputs.id }}")
           echo "volume_id=${VOLUME_ID}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve EBS volume ID
+        id: ebs
+        run: |
+          if [[ -n "${{ inputs.ebs_volume_id }}" ]]; then
+            echo "volume_id=${{ inputs.ebs_volume_id }}" >> "$GITHUB_OUTPUT"
+            echo "Using provided EBS volume: ${{ inputs.ebs_volume_id }} (skipping osm-build)"
+          else
+            echo "volume_id=${{ steps.ebs-create.outputs.volume_id }}" >> "$GITHUB_OUTPUT"
+            echo "Using newly created EBS volume: ${{ steps.ebs-create.outputs.volume_id }}"
+          fi
+
       # ─── osm-build Job ─────────────────────────────────────────
       - name: Submit osm-build Batch job
+        if: ${{ !inputs.ebs_volume_id }}
         id: osm-build
         run: |
           JOB_ID=$(S3_BUCKET="${S3_BUCKET}" bash scripts/submit-batch-job.sh \
@@ -120,6 +138,7 @@ jobs:
           echo "job_id=${JOB_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Wait for osm-build to complete
+        if: ${{ !inputs.ebs_volume_id }}
         run: |
           JOB_ID="${{ steps.osm-build.outputs.job_id }}"
           MAX_ATTEMPTS=480  # 8 hours at 60s intervals
@@ -267,9 +286,9 @@ jobs:
 
       # ─── Delete EBS Volume ─────────────────────────────────────
       - name: Delete EBS volume
-        if: always()
+        if: ${{ always() && !inputs.ebs_volume_id }}
         run: |
-          VOLUME_ID="${{ steps.ebs.outputs.volume_id }}"
+          VOLUME_ID="${{ steps.ebs-create.outputs.volume_id }}"
           if [[ -n "$VOLUME_ID" ]]; then
             bash scripts/delete-ebs.sh "$VOLUME_ID" || echo "::warning::EBS cleanup failed for ${VOLUME_ID}"
           fi
