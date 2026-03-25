@@ -63,18 +63,17 @@ else
   log "Filtering PBF with osmium (full road network + OI-canonical POIs)..."
   rm -f "$FILTERED_FILE"
   osmium tags-filter "$PBF_FILE" \
-    w/highway=motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary,secondary_link,tertiary,tertiary_link,residential,unclassified,service,living_street,rest_area,services \
-    w/highway=construction \
-    n/highway=motorway_junction \
-    n/highway=rest_area,services \
-    n/amenity=fuel,restaurant,fast_food,cafe,toilets,charging_station \
-    n/tourism=hotel,motel,guest_house \
+    w/highway=motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary,secondary_link,tertiary,tertiary_link,residential,unclassified,service,living_street \
+    n/amenity=fuel,restaurant,fast_food,cafe,charging_station \
+    n/tourism=hotel,motel \
     n/shop=gas \
     n/cuisine \
-    w/amenity=fuel,restaurant,fast_food,cafe,toilets,charging_station \
-    w/tourism=hotel,motel,guest_house \
+    n/highway=rest_area \
+    w/amenity=fuel,restaurant,fast_food,cafe,charging_station \
+    w/tourism=hotel,motel \
     w/shop=gas \
     w/cuisine \
+    w/highway=rest_area \
     -o "$FILTERED_FILE" \
     --overwrite
   touch "${MARKER_DIR}/.filter-complete"
