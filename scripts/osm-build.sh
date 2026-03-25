@@ -60,13 +60,21 @@ FILTERED_FILE="${WORK_DIR}/us-filtered.osm.pbf"
 if [[ -f "${MARKER_DIR}/.filter-complete" ]]; then
   log "Osmium filter already completed, skipping"
 else
-  log "Filtering PBF with osmium (highways + POI amenities)..."
+  log "Filtering PBF with osmium (full road network + OI-canonical POIs)..."
   rm -f "$FILTERED_FILE"
   osmium tags-filter "$PBF_FILE" \
-    w/highway=motorway,motorway_link,trunk,trunk_link,primary,secondary \
-    n/amenity=fuel,restaurant,fast_food,cafe,food_court \
-    n/tourism=hotel,motel \
-    n/shop=convenience \
+    w/highway=motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary,secondary_link,tertiary,tertiary_link,residential,unclassified,service,living_street,rest_area,services \
+    w/highway=construction \
+    n/highway=motorway_junction \
+    n/highway=rest_area,services \
+    n/amenity=fuel,restaurant,fast_food,cafe,toilets,charging_station \
+    n/tourism=hotel,motel,guest_house \
+    n/shop=gas \
+    n/cuisine \
+    w/amenity=fuel,restaurant,fast_food,cafe,toilets,charging_station \
+    w/tourism=hotel,motel,guest_house \
+    w/shop=gas \
+    w/cuisine \
     -o "$FILTERED_FILE" \
     --overwrite
   touch "${MARKER_DIR}/.filter-complete"
