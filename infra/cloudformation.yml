@@ -1,8 +1,28 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Pike Reachability pipeline infrastructure.
-  Batch compute environment, job definitions, S3 staging bucket,
+  Batch compute environments, job definitions, S3 staging bucket,
   IAM roles (Batch + GHA OIDC), and CloudWatch billing alarm.
+  Must be deployed in us-east-1 (required for AWS/Billing metrics).
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Network
+        Parameters:
+          - VpcId
+          - Subnets
+      - Label:
+          default: GitHub
+        Parameters:
+          - GitHubOrg
+          - GitHubRepo
+          - CreateOIDCProvider
+      - Label:
+          default: Notifications
+        Parameters:
+          - AlarmEmail
 
 Parameters:
   GitHubOrg:
@@ -14,6 +34,14 @@ Parameters:
     Type: String
     Default: pike-reachability
     Description: GitHub repository name for OIDC trust policy
+
+  CreateOIDCProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >
+      Create the GitHub Actions OIDC provider. Set to false if one
+      already exists in this account (only one per account is allowed).
 
   AlarmEmail:
     Type: String
@@ -27,7 +55,30 @@ Parameters:
     Type: List<AWS::EC2::Subnet::Id>
     Description: Subnets for Batch compute environment (must be in us-east-1)
 
+Rules:
+  MustBeUsEast1:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", "us-east-1"]
+        AssertDescription: >
+          This stack must be deployed in us-east-1.
+          AWS/Billing metrics are only available in us-east-1.
+
+Conditions:
+  ShouldCreateOIDCProvider: !Equals [!Ref CreateOIDCProvider, "true"]
+
 Resources:
+  # ─── GitHub Actions OIDC Provider ────────────────────────────────
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
   # ─── Security Group ───────────────────────────────────────────────
   BatchSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -45,8 +96,10 @@ Resources:
   # ─── S3 Staging Bucket ───────────────────────────────────────────
   StagingBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      BucketName: pike-reachability-staging
+      BucketName: !Sub "pike-reachability-staging-${AWS::AccountId}"
       LifecycleConfiguration:
         Rules:
           - Id: AutoDeleteAfter7Days
@@ -57,6 +110,25 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      Tags:
+        - Key: project
+          Value: pike-reachability
+
+  # ─── CloudWatch Log Groups ──────────────────────────────────────
+  OsmBuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/batch/pike-reachability-osm-build
+      RetentionInDays: 14
+      Tags:
+        - Key: project
+          Value: pike-reachability
+
+  ScoreLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/batch/pike-reachability-score
+      RetentionInDays: 14
       Tags:
         - Key: project
           Value: pike-reachability
@@ -78,11 +150,12 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Sid: S3StagingWrite
+              - Sid: S3Staging
                 Effect: Allow
                 Action:
                   - s3:PutObject
                   - s3:GetObject
+                  - s3:DeleteObject
                   - s3:ListBucket
                 Resource:
                   - !GetAtt StagingBucket.Arn
@@ -90,9 +163,12 @@ Resources:
               - Sid: CloudWatchLogs
                 Effect: Allow
                 Action:
+                  - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: "*"
+                Resource:
+                  - !GetAtt OsmBuildLogGroup.Arn
+                  - !GetAtt ScoreLogGroup.Arn
 
   # ─── IAM: Batch Execution Role (ECS task execution) ──────────────
   BatchExecutionRole:
@@ -108,21 +184,6 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-
-  # ─── IAM: Batch Service Role ─────────────────────────────────────
-  BatchServiceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: pike-reachability-batch-service-role
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: batch.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
 
   # ─── IAM: GHA OIDC Role ─────────────────────────────────────────
   GHAOIDCRole:
@@ -154,7 +215,10 @@ Resources:
                   - batch:SubmitJob
                   - batch:DescribeJobs
                   - batch:TerminateJob
-                Resource: "*"
+                Resource:
+                  - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job-queue/pike-reachability-*"
+                  - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job-definition/pike-reachability-*"
+                  - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job/*"
               - Sid: EBSManagement
                 Effect: Allow
                 Action:
@@ -164,6 +228,25 @@ Resources:
                   - ec2:DetachVolume
                   - ec2:DescribeVolumes
                   - ec2:CreateTags
+                Resource: !Sub "arn:aws:ec2:us-east-1:${AWS::AccountId}:volume/*"
+                Condition:
+                  StringEquals:
+                    "aws:ResourceTag/project": pike-reachability
+              - Sid: EBSCreateVolume
+                Effect: Allow
+                Action:
+                  - ec2:CreateVolume
+                  - ec2:CreateTags
+                Resource: !Sub "arn:aws:ec2:us-east-1:${AWS::AccountId}:volume/*"
+                Condition:
+                  StringEquals:
+                    "aws:RequestTag/project": pike-reachability
+              - Sid: EC2Describe
+                Effect: Allow
+                Action:
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeAvailabilityZones
                 Resource: "*"
               - Sid: S3StagingAccess
                 Effect: Allow
@@ -184,7 +267,6 @@ Resources:
       ComputeEnvironmentName: pike-reachability-compute-ondemand
       Type: MANAGED
       State: ENABLED
-      ServiceRole: !GetAtt BatchServiceRole.Arn
       ComputeResources:
         Type: EC2
         AllocationStrategy: BEST_FIT_PROGRESSIVE
@@ -206,7 +288,6 @@ Resources:
       ComputeEnvironmentName: pike-reachability-compute-spot
       Type: MANAGED
       State: ENABLED
-      ServiceRole: !GetAtt BatchServiceRole.Arn
       ComputeResources:
         Type: SPOT
         AllocationStrategy: SPOT_CAPACITY_OPTIMIZED
@@ -296,6 +377,12 @@ Resources:
         Environment:
           - Name: S3_BUCKET
             Value: !Ref StagingBucket
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Ref OsmBuildLogGroup
+            awslogs-region: !Ref "AWS::Region"
+            awslogs-stream-prefix: osm-build
         MountPoints:
           - ContainerPath: /mnt/osrm
             SourceVolume: osrm-data
@@ -325,6 +412,12 @@ Resources:
         Environment:
           - Name: S3_BUCKET
             Value: !Ref StagingBucket
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group: !Ref ScoreLogGroup
+            awslogs-region: !Ref "AWS::Region"
+            awslogs-stream-prefix: score
         MountPoints:
           - ContainerPath: /mnt/osrm
             SourceVolume: osrm-data
