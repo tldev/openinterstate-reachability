@@ -41,4 +41,6 @@ Worked through 5 successive blockers in the scoring pipeline, each fix getting f
 5. **PR #38 — Duplicate exit IDs**: OI CSVs contain duplicate exit_id values. Removed PRIMARY KEY from CREATE TABLE, load via \copy, then dedup with ctid trick, then add UNIQUE INDEX.
 6. **PR #39 — pike-score clap arg parsing**: Root cause of "relation exit_place_scores does not exist" error. `pike-score score --database-url ...` silently fails because clap 4 doesn't allow parent args after a subcommand. Fixed by: (a) removing explicit `score` subcommand from score.sh invocation, (b) adding `global = true` to all CLI args. Confirmed with new test that reproduces the exact failure.
 
-EBS volume vol-041f5aa784f19c00e from run 23554122059-1 has been reused across retries. After PR #39 merge + Docker rebuild, pipeline should complete end-to-end.
+EBS volume vol-041f5aa784f19c00e from run 23554122059-1 has been reused across retries.
+
+7. **PR #40 — Docker registry cache**: The REAL root cause of all failures. Docker's `cache-from: type=registry` was serving stale cached layers — the pike-score binary was never recompiled after the initial PR #16 build. Build logs proved it: `Finished 'release' profile in 0.17s` (nothing compiled) and `COPY src/ src/` completing in 0.0s. None of the fixes from PRs #34-#39 were in the container image. Removed `cache-from` and `cache-to` from docker-build.yml. Also added eprintln! diagnostics to pike-score startup for visibility.
