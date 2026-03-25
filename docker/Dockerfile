@@ -40,7 +40,7 @@ RUN git clone --branch v${OSRM_VERSION} --depth 1 \
       https://github.com/Project-OSRM/osrm-backend.git /tmp/osrm-backend \
     && mkdir /tmp/osrm-backend/build \
     && cd /tmp/osrm-backend/build \
-    && cmake .. -DCMAKE_BUILD_TYPE=Release \
+    && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-Wno-error" \
     && cmake --build . --target install -- -j$(nproc) \
     && cp -r /tmp/osrm-backend/profiles /opt/osrm-profiles \
     && rm -rf /tmp/osrm-backend
