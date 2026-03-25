@@ -15,16 +15,16 @@ pub(super) async fn fetch_pending_pairs(
     let qrows: Vec<(String, String, f64, f64, f64, f64, i32)> = match target_exit_ids {
         Some(ids) => {
             sqlx::query_as(
-                "SELECT c.exit_id, c.poi_id, \
-                        ST_Y(e.geom) AS exit_lat, ST_X(e.geom) AS exit_lon, \
-                        ST_Y(p.geom) AS poi_lat, ST_X(p.geom) AS poi_lon, \
-                        c.distance_m \
-                 FROM exit_poi_candidates c \
-                 JOIN exits e ON e.id = c.exit_id \
-                 JOIN pois p ON p.id = c.poi_id \
+                "SELECT c.exit_id::text, c.place_id::text, \
+                        e.latitude, e.longitude, \
+                        p.latitude, p.longitude, \
+                        c.distance_m::integer \
+                 FROM exit_place_links c \
+                 JOIN corridor_exits e ON e.id = c.exit_id \
+                 JOIN places p ON p.id = c.place_id \
                  LEFT JOIN exit_poi_reachability r \
-                   ON r.exit_id = c.exit_id AND r.poi_id = c.poi_id \
-                 WHERE c.exit_id = ANY($1) \
+                   ON r.exit_id = c.exit_id::text AND r.poi_id = c.place_id::text \
+                 WHERE c.exit_id::text = ANY($1) \
                    AND (r.exit_id IS NULL OR r.reachability_score IS NULL OR r.reachability_confidence IS NULL)",
             )
             .bind(ids)
@@ -33,15 +33,15 @@ pub(super) async fn fetch_pending_pairs(
         }
         None => {
             sqlx::query_as(
-                "SELECT c.exit_id, c.poi_id, \
-                        ST_Y(e.geom) AS exit_lat, ST_X(e.geom) AS exit_lon, \
-                        ST_Y(p.geom) AS poi_lat, ST_X(p.geom) AS poi_lon, \
-                        c.distance_m \
-                 FROM exit_poi_candidates c \
-                 JOIN exits e ON e.id = c.exit_id \
-                 JOIN pois p ON p.id = c.poi_id \
+                "SELECT c.exit_id::text, c.place_id::text, \
+                        e.latitude, e.longitude, \
+                        p.latitude, p.longitude, \
+                        c.distance_m::integer \
+                 FROM exit_place_links c \
+                 JOIN corridor_exits e ON e.id = c.exit_id \
+                 JOIN places p ON p.id = c.place_id \
                  LEFT JOIN exit_poi_reachability r \
-                   ON r.exit_id = c.exit_id AND r.poi_id = c.poi_id \
+                   ON r.exit_id = c.exit_id::text AND r.poi_id = c.place_id::text \
                  WHERE r.exit_id IS NULL OR r.reachability_score IS NULL OR r.reachability_confidence IS NULL",
             )
             .fetch_all(pool)
@@ -53,11 +53,11 @@ pub(super) async fn fetch_pending_pairs(
         .into_iter()
         .map(|r| PendingPair {
             exit_id: r.0,
-            poi_id: r.1,
+            place_id: r.1,
             exit_lat: r.2,
             exit_lon: r.3,
-            poi_lat: r.4,
-            poi_lon: r.5,
+            place_lat: r.4,
+            place_lon: r.5,
             air_distance_m: r.6,
         })
         .collect())

@@ -36,8 +36,8 @@ pub(super) async fn prepare_snap_hints(
             .entry(pair.exit_id.clone())
             .or_insert((pair.exit_lon, pair.exit_lat));
         unique_pois
-            .entry(pair.poi_id.clone())
-            .or_insert((pair.poi_lon, pair.poi_lat));
+            .entry(pair.place_id.clone())
+            .or_insert((pair.place_lon, pair.place_lat));
         pairs_by_exit
             .entry(pair.exit_id.clone())
             .or_default()

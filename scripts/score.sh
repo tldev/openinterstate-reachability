@@ -173,29 +173,6 @@ PLACE_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM places")
 LINK_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM exit_place_links")
 log "Loaded: ${EXIT_COUNT} exits, ${PLACE_COUNT} places, ${LINK_COUNT} exit-place links"
 
-# ─── Create views for pike-score ──────────────────────────────────
-# pike-score expects tables named exits/pois/exit_poi_candidates with
-# PostGIS geometry columns. Bridge from OI's raw lat/lon schema.
-log "Creating schema views for pike-score..."
-psql -U "$PG_USER" -d "$PG_DB" <<SQL
-CREATE VIEW exits AS
-  SELECT id::text AS id,
-         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326) AS geom
-  FROM corridor_exits;
-
-CREATE VIEW pois AS
-  SELECT id::text AS id,
-         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326) AS geom
-  FROM places;
-
-CREATE VIEW exit_poi_candidates AS
-  SELECT exit_id::text AS exit_id,
-         place_id::text AS poi_id,
-         distance_m::integer AS distance_m
-  FROM exit_place_links;
-SQL
-log "Schema views created"
-
 # ─── Run pike-score ───────────────────────────────────────────────
 mkdir -p "$OUTPUT_DIR"
 
