@@ -38,11 +38,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN git clone --branch v${OSRM_VERSION} --depth 1 \
       https://github.com/Project-OSRM/osrm-backend.git /tmp/osrm-backend \
-    && find /tmp/osrm-backend -name CMakeLists.txt -o -name '*.cmake' \
-       | xargs sed -i 's/-Werror//g' \
+    && find /tmp/osrm-backend \( -name CMakeLists.txt -o -name '*.cmake' \) \
+       -exec sed -i 's/-Werror//g' {} + \
     && mkdir /tmp/osrm-backend/build \
     && cd /tmp/osrm-backend/build \
     && cmake .. -DCMAKE_BUILD_TYPE=Release \
+    && find . -name 'flags.make' -exec sed -i 's/-Werror//g' {} + \
     && cmake --build . --target install -- -j$(nproc) \
     && cp -r /tmp/osrm-backend/profiles /opt/osrm-profiles \
     && rm -rf /tmp/osrm-backend
