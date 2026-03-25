@@ -295,7 +295,7 @@ Resources:
   OnDemandComputeEnvironment:
     Type: AWS::Batch::ComputeEnvironment
     Properties:
-      ComputeEnvironmentName: pike-reachability-compute-ondemand
+      ComputeEnvironmentName: pike-reachability-compute-ondemand-v2
       Type: MANAGED
       State: ENABLED
       ComputeResources:
