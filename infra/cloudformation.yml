@@ -206,6 +206,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: pike-reachability-gha-role
+      MaxSessionDuration: 43200  # 12 hours — polling Batch jobs can take 8+ hours
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
