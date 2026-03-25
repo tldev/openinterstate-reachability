@@ -145,7 +145,7 @@ log "Loading OI data into PostgreSQL..."
 
 psql -U "$PG_USER" -d "$PG_DB" <<SQL
 CREATE TABLE IF NOT EXISTS corridor_exits (
-  exit_id TEXT PRIMARY KEY,
+  exit_id TEXT,
   corridor_id INTEGER,
   interstate_name TEXT,
   direction_code TEXT,
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS corridor_exits (
 );
 
 CREATE TABLE IF NOT EXISTS places (
-  place_id TEXT PRIMARY KEY,
+  place_id TEXT,
   category TEXT,
   name TEXT,
   display_name TEXT,
@@ -178,6 +178,14 @@ CREATE TABLE IF NOT EXISTS exit_place_links (
 \copy places FROM '${PLACES_CSV}' WITH (FORMAT csv, HEADER true)
 \copy exit_place_links FROM '${LINKS_CSV}' WITH (FORMAT csv, HEADER true)
 
+-- Deduplicate after load (OI CSVs may contain duplicate IDs)
+DELETE FROM corridor_exits a USING corridor_exits b
+  WHERE a.ctid > b.ctid AND a.exit_id = b.exit_id;
+DELETE FROM places a USING places b
+  WHERE a.ctid > b.ctid AND a.place_id = b.place_id;
+
+CREATE UNIQUE INDEX ON corridor_exits (exit_id);
+CREATE UNIQUE INDEX ON places (place_id);
 CREATE INDEX ON exit_place_links (exit_id, place_id);
 SQL
 
