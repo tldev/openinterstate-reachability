@@ -61,7 +61,7 @@ struct ExitBatch {
 #[derive(Clone, Debug)]
 struct UpdateRow {
     exit_id: String,
-    poi_id: String,
+    place_id: String,
     route_distance_m: Option<i32>,
     route_duration_s: Option<i32>,
     score: f64,
@@ -72,7 +72,7 @@ struct UpdateRow {
 #[derive(Default)]
 struct PendingUpdates {
     exit_ids: Vec<String>,
-    poi_ids: Vec<String>,
+    place_ids: Vec<String>,
     route_distance_ms: Vec<i32>,
     route_duration_ss: Vec<i32>,
     scores: Vec<f64>,
@@ -213,14 +213,14 @@ async fn ensure_required_tables(pool: &PgPool) -> Result<(), anyhow::Error> {
     ensure_snap_hint_table(pool).await?;
 
     let has_links_table = table_exists(pool, "public.exit_place_links").await?;
-    let has_reachability_table = table_exists(pool, "public.exit_poi_reachability").await?;
+    let has_reachability_table = table_exists(pool, "public.exit_place_scores").await?;
     let has_exits_table = table_exists(pool, "public.corridor_exits").await?;
     let has_places_table = table_exists(pool, "public.places").await?;
     if !has_links_table {
         anyhow::bail!("exit_place_links table is missing");
     }
     if !has_reachability_table {
-        anyhow::bail!("exit_poi_reachability table is missing");
+        anyhow::bail!("exit_place_scores table is missing");
     }
     if !has_exits_table {
         anyhow::bail!("corridor_exits table is missing");
@@ -311,7 +311,7 @@ async fn run_scoring_jobs(
 
         for update in updates {
             pending.exit_ids.push(update.exit_id);
-            pending.poi_ids.push(update.poi_id);
+            pending.place_ids.push(update.place_id);
             pending
                 .route_distance_ms
                 .push(update.route_distance_m.unwrap_or(-1));

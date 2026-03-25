@@ -137,34 +137,49 @@ log "Loading OI data into PostgreSQL..."
 
 psql -U "$PG_USER" -d "$PG_DB" <<SQL
 CREATE TABLE IF NOT EXISTS corridor_exits (
-  id INTEGER PRIMARY KEY,
+  exit_id TEXT PRIMARY KEY,
   corridor_id INTEGER,
+  interstate_name TEXT,
+  direction_code TEXT,
+  sequence_index INTEGER,
   exit_number TEXT,
-  name TEXT,
-  latitude DOUBLE PRECISION,
-  longitude DOUBLE PRECISION,
-  sequence INTEGER
+  exit_name TEXT,
+  lat DOUBLE PRECISION,
+  lon DOUBLE PRECISION,
+  geometry_geojson TEXT
 );
 
 CREATE TABLE IF NOT EXISTS places (
-  id INTEGER PRIMARY KEY,
-  name TEXT,
+  place_id TEXT PRIMARY KEY,
   category TEXT,
-  subcategory TEXT,
-  latitude DOUBLE PRECISION,
-  longitude DOUBLE PRECISION,
-  osm_id BIGINT
+  name TEXT,
+  display_name TEXT,
+  brand TEXT,
+  geometry_geojson TEXT
 );
 
 CREATE TABLE IF NOT EXISTS exit_place_links (
-  exit_id INTEGER,
-  place_id INTEGER,
-  distance_m DOUBLE PRECISION
+  exit_id TEXT,
+  place_id TEXT,
+  category TEXT,
+  distance_m INTEGER,
+  rank INTEGER
 );
 
 \copy corridor_exits FROM '${EXITS_CSV}' WITH (FORMAT csv, HEADER true)
 \copy places FROM '${PLACES_CSV}' WITH (FORMAT csv, HEADER true)
 \copy exit_place_links FROM '${LINKS_CSV}' WITH (FORMAT csv, HEADER true)
+SQL
+
+# Extract lat/lon from geometry_geojson for places (GeoJSON has no lat/lon columns)
+log "Extracting lat/lon from places geometry_geojson..."
+psql -U "$PG_USER" -d "$PG_DB" <<SQL
+ALTER TABLE places ADD COLUMN lat DOUBLE PRECISION;
+ALTER TABLE places ADD COLUMN lon DOUBLE PRECISION;
+UPDATE places SET
+  lon = (geometry_geojson::json->'coordinates'->>0)::double precision,
+  lat = (geometry_geojson::json->'coordinates'->>1)::double precision
+WHERE geometry_geojson IS NOT NULL;
 SQL
 
 EXIT_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM corridor_exits")
@@ -183,12 +198,12 @@ pike-score score \
 log "Scoring complete"
 
 # ─── Export results to CSV ─────────────────────────────────────────
-# pike-score writes to the exit_poi_reachability table; export to CSV
+# pike-score writes to the exit_place_scores table; export to CSV
 # for the GitHub release artifact.
 REACHABILITY_CSV="${OUTPUT_DIR}/reachability.csv"
 log "Exporting reachability results to CSV..."
 psql -U "$PG_USER" -d "$PG_DB" -c \
-  "\copy (SELECT exit_id, poi_id, route_distance_m, route_duration_s, reachable, reachability_score FROM exit_poi_reachability ORDER BY exit_id, poi_id) TO '${REACHABILITY_CSV}' WITH (FORMAT csv, HEADER true)"
+  "\copy (SELECT exit_id, place_id, route_distance_m, route_duration_s, reachable, reachability_score, reachability_confidence, provider, provider_dataset_version, updated_at FROM exit_place_scores ORDER BY exit_id, place_id) TO '${REACHABILITY_CSV}' WITH (FORMAT csv, HEADER true)"
 
 if [[ ! -f "$REACHABILITY_CSV" ]]; then
   log "ERROR: CSV export failed — reachability.csv not created" >&2
