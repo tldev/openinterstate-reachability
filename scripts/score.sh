@@ -6,6 +6,7 @@
 #
 set -euo pipefail
 
+SCRIPT_NAME="score"
 OSRM_DIR="/mnt/osrm"
 PIPELINE_RUN_ID="${PIPELINE_RUN_ID:?PIPELINE_RUN_ID must be set}"
 S3_BUCKET="${S3_BUCKET:?S3_BUCKET must be set}"
@@ -15,18 +16,18 @@ PG_DB="pike_scoring"
 PG_USER="pike"
 OUTPUT_DIR="/tmp/reachability-output"
 REGION="${AWS_REGION:-us-east-1}"
+PG_VERSION=$(pg_lsclusters -h 2>/dev/null | awk '{print $1}' | head -1)
+PG_VERSION="${PG_VERSION:-15}"
 
-log() { echo "[$(date -u +%FT%TZ)] $*"; }
+log() { echo "[${SCRIPT_NAME}][$(date -u +%FT%TZ)] $*"; }
 
 cleanup() {
   log "Cleaning up..."
-  # Stop OSRM
   if [[ -n "${OSRM_PID:-}" ]] && kill -0 "$OSRM_PID" 2>/dev/null; then
     kill "$OSRM_PID" || true
     wait "$OSRM_PID" 2>/dev/null || true
   fi
-  # Stop PostgreSQL
-  pg_ctlcluster 15 main stop 2>/dev/null || true
+  pg_ctlcluster "$PG_VERSION" main stop 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -38,7 +39,6 @@ if [[ ! -f "${OSRM_DIR}/.osm-build-complete" ]]; then
   exit 1
 fi
 
-# Read OSRM base path from marker
 OSRM_BASE=$(grep '^osrm_base=' "${OSRM_DIR}/.osm-build-complete" | cut -d= -f2)
 if [[ -z "$OSRM_BASE" || ! -f "${OSRM_BASE}.osrm" ]]; then
   log "ERROR: OSRM dataset not found at ${OSRM_BASE}" >&2
@@ -55,12 +55,12 @@ osrm-routed \
   "${OSRM_BASE}.osrm" &
 OSRM_PID=$!
 
-# Wait for OSRM to be ready
 log "Waiting for OSRM to start..."
+OSRM_READY=false
 for i in $(seq 1 60); do
-  if curl -sf "http://localhost:${OSRM_PORT}/health" >/dev/null 2>&1 || \
-     curl -sf "http://localhost:${OSRM_PORT}/route/v1/driving/-73.9857,40.7484;-73.9857,40.7484" >/dev/null 2>&1; then
+  if curl -sf "http://localhost:${OSRM_PORT}/route/v1/driving/-73.9857,40.7484;-73.9857,40.7484" >/dev/null 2>&1; then
     log "OSRM is ready (attempt ${i})"
+    OSRM_READY=true
     break
   fi
   if ! kill -0 "$OSRM_PID" 2>/dev/null; then
@@ -70,11 +70,15 @@ for i in $(seq 1 60); do
   sleep 5
 done
 
-# ─── Start PostgreSQL + PostGIS ───────────────────────────────────
-log "Starting PostgreSQL..."
-pg_ctlcluster 15 main start
+if [[ "$OSRM_READY" != "true" ]]; then
+  log "ERROR: OSRM failed to start within 300 seconds" >&2
+  exit 1
+fi
 
-# Create database and user
+# ─── Start PostgreSQL + PostGIS ───────────────────────────────────
+log "Starting PostgreSQL ${PG_VERSION}..."
+pg_ctlcluster "$PG_VERSION" main start
+
 su - postgres -c "psql -c \"CREATE USER ${PG_USER} WITH SUPERUSER;\"" 2>/dev/null || true
 su - postgres -c "createdb -O ${PG_USER} ${PG_DB}" 2>/dev/null || true
 su - postgres -c "psql -d ${PG_DB} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'"
@@ -82,7 +86,8 @@ log "PostgreSQL ready with database ${PG_DB}"
 
 # ─── Fetch OpenInterstate release ────────────────────────────────
 OI_DIR="/tmp/openinterstate"
-mkdir -p "$OI_DIR"
+OI_DATA_DIR="${OI_DIR}/data"
+mkdir -p "$OI_DIR" "$OI_DATA_DIR"
 
 log "Fetching latest OpenInterstate release from ${OI_REPO}..."
 gh release download \
@@ -91,18 +96,40 @@ gh release download \
   --dir "$OI_DIR" \
   --clobber
 
-# Extract CSVs
-TARBALL=$(ls "${OI_DIR}"/*.tar.gz | head -1)
-log "Extracting ${TARBALL}..."
-tar xzf "$TARBALL" -C "$OI_DIR"
-log "OI release contents:"
-ls -lh "${OI_DIR}/"
+# Validate exactly one tarball
+TARBALL_COUNT=$(find "$OI_DIR" -maxdepth 1 -name '*.tar.gz' | wc -l)
+if [[ "$TARBALL_COUNT" -ne 1 ]]; then
+  log "ERROR: Expected 1 tarball, found ${TARBALL_COUNT}" >&2
+  ls -la "$OI_DIR/" >&2
+  exit 1
+fi
+
+TARBALL=$(find "$OI_DIR" -maxdepth 1 -name '*.tar.gz' -print -quit)
+log "Extracting ${TARBALL} to ${OI_DATA_DIR}..."
+tar xzf "$TARBALL" -C "$OI_DATA_DIR" --strip-components=1 2>/dev/null \
+  || tar xzf "$TARBALL" -C "$OI_DATA_DIR"
+
+# Locate CSVs explicitly
+find_csv() {
+  local name="$1"
+  local csv
+  csv=$(find "$OI_DATA_DIR" -name "$name" -print -quit)
+  if [[ -z "$csv" ]]; then
+    log "ERROR: ${name} not found in OI release" >&2
+    exit 1
+  fi
+  echo "$csv"
+}
+
+EXITS_CSV=$(find_csv "corridor_exits.csv")
+PLACES_CSV=$(find_csv "places.csv")
+LINKS_CSV=$(find_csv "exit_place_links.csv")
+log "Found CSVs: $(basename "$EXITS_CSV"), $(basename "$PLACES_CSV"), $(basename "$LINKS_CSV")"
 
 # ─── Load OI data into PostGIS ────────────────────────────────────
 log "Loading OI data into PostGIS..."
 
-# Create tables and load CSVs
-psql -U "$PG_USER" -d "$PG_DB" <<'SQL'
+psql -U "$PG_USER" -d "$PG_DB" <<SQL
 CREATE TABLE IF NOT EXISTS corridor_exits (
   id INTEGER PRIMARY KEY,
   corridor_id INTEGER,
@@ -129,9 +156,9 @@ CREATE TABLE IF NOT EXISTS exit_place_links (
   distance_m DOUBLE PRECISION
 );
 
-\copy corridor_exits FROM PROGRAM 'find /tmp/openinterstate -name "corridor_exits.csv" | head -1 | xargs cat' WITH (FORMAT csv, HEADER true)
-\copy places FROM PROGRAM 'find /tmp/openinterstate -name "places.csv" | head -1 | xargs cat' WITH (FORMAT csv, HEADER true)
-\copy exit_place_links FROM PROGRAM 'find /tmp/openinterstate -name "exit_place_links.csv" | head -1 | xargs cat' WITH (FORMAT csv, HEADER true)
+\copy corridor_exits FROM '${EXITS_CSV}' WITH (FORMAT csv, HEADER true)
+\copy places FROM '${PLACES_CSV}' WITH (FORMAT csv, HEADER true)
+\copy exit_place_links FROM '${LINKS_CSV}' WITH (FORMAT csv, HEADER true)
 SQL
 
 EXIT_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM corridor_exits")
@@ -158,9 +185,19 @@ if [[ ! -f "$REACHABILITY_CSV" ]]; then
   exit 1
 fi
 
-ROW_COUNT=$(wc -l < "$REACHABILITY_CSV")
+# Validate CSV schema
+EXPECTED_HEADER="exit_id,poi_id,route_distance_m,route_duration_s,reachable,reachability_score"
+ACTUAL_HEADER=$(head -1 "$REACHABILITY_CSV")
+if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER" ]]; then
+  log "ERROR: Unexpected CSV schema" >&2
+  log "Expected: ${EXPECTED_HEADER}" >&2
+  log "Got:      ${ACTUAL_HEADER}" >&2
+  exit 1
+fi
+
+ROW_COUNT=$(tail -n +2 "$REACHABILITY_CSV" | wc -l)
 FILE_SIZE=$(du -h "$REACHABILITY_CSV" | cut -f1)
-log "Output: reachability.csv — ${ROW_COUNT} rows, ${FILE_SIZE}"
+log "Output: reachability.csv — ${ROW_COUNT} data rows, ${FILE_SIZE}"
 
 # ─── Upload to S3 ────────────────────────────────────────────────
 S3_PREFIX="s3://${S3_BUCKET}/${PIPELINE_RUN_ID}"
@@ -168,7 +205,6 @@ log "Uploading output to ${S3_PREFIX}/"
 
 aws s3 cp "$REACHABILITY_CSV" "${S3_PREFIX}/reachability.csv" --region "$REGION"
 
-# Upload snap hints if present (for incremental scoring)
 SNAP_HINTS="${OUTPUT_DIR}/osrm_snap_hints.csv"
 if [[ -f "$SNAP_HINTS" ]]; then
   aws s3 cp "$SNAP_HINTS" "${S3_PREFIX}/osrm_snap_hints.csv" --region "$REGION"

@@ -8,8 +8,11 @@ set -euo pipefail
 
 VOLUME_ID="${1:?Usage: delete-ebs.sh <volume-id>}"
 REGION="${AWS_REGION:-us-east-1}"
+MAX_WAIT_ATTEMPTS="${EBS_WAIT_ATTEMPTS:-80}"
 
-echo "[$(date -u +%FT%TZ)] Checking volume ${VOLUME_ID}..."
+log() { echo "[delete-ebs][$(date -u +%FT%TZ)] $*" >&2; }
+
+log "Checking volume ${VOLUME_ID}..."
 
 # Check if the volume exists
 VOLUME_INFO=$(aws ec2 describe-volumes \
@@ -17,10 +20,10 @@ VOLUME_INFO=$(aws ec2 describe-volumes \
   --region "$REGION" \
   --output json 2>&1) || {
   if echo "$VOLUME_INFO" | grep -q "InvalidVolume.NotFound"; then
-    echo "[$(date -u +%FT%TZ)] Volume ${VOLUME_ID} not found (already deleted). OK."
+    log "Volume ${VOLUME_ID} not found (already deleted). OK."
     exit 0
   fi
-  echo "[$(date -u +%FT%TZ)] ERROR: Failed to describe volume: ${VOLUME_INFO}" >&2
+  log "ERROR: Failed to describe volume: ${VOLUME_INFO}"
   exit 1
 }
 
@@ -29,22 +32,39 @@ PROJECT_TAG=$(echo "$VOLUME_INFO" | jq -r \
   '.Volumes[0].Tags[]? | select(.Key == "project") | .Value // empty')
 
 if [[ "$PROJECT_TAG" != "pike-reachability" ]]; then
-  echo "[$(date -u +%FT%TZ)] ERROR: Volume ${VOLUME_ID} is not tagged project=pike-reachability (got '${PROJECT_TAG}'). Refusing to delete." >&2
+  log "ERROR: Volume ${VOLUME_ID} is not tagged project=pike-reachability (got '${PROJECT_TAG}'). Refusing to delete."
   exit 1
 fi
 
 # Check volume state — if attached, wait for detach
 VOLUME_STATE=$(echo "$VOLUME_INFO" | jq -r '.Volumes[0].State')
 if [[ "$VOLUME_STATE" == "in-use" ]]; then
-  echo "[$(date -u +%FT%TZ)] Volume is in-use. Waiting for detachment..."
-  aws ec2 wait volume-available \
+  log "Volume is in-use. Waiting for detachment (max ${MAX_WAIT_ATTEMPTS} attempts)..."
+  if ! aws ec2 wait volume-available \
     --volume-ids "$VOLUME_ID" \
-    --region "$REGION" || true
+    --region "$REGION" \
+    --cli-read-timeout 30 2>/dev/null; then
+    log "WARNING: Wait timed out. Attempting force-detach..."
+    ATTACHMENT_ID=$(echo "$VOLUME_INFO" | jq -r '.Volumes[0].Attachments[0].InstanceId // empty')
+    if [[ -n "$ATTACHMENT_ID" ]]; then
+      aws ec2 detach-volume \
+        --volume-id "$VOLUME_ID" \
+        --force \
+        --region "$REGION" || true
+      log "Force-detach issued. Waiting for volume to become available..."
+      aws ec2 wait volume-available \
+        --volume-ids "$VOLUME_ID" \
+        --region "$REGION" || {
+        log "ERROR: Volume ${VOLUME_ID} still not available after force-detach."
+        exit 1
+      }
+    fi
+  fi
 fi
 
-echo "[$(date -u +%FT%TZ)] Deleting volume ${VOLUME_ID}..."
+log "Deleting volume ${VOLUME_ID}..."
 aws ec2 delete-volume \
   --volume-id "$VOLUME_ID" \
   --region "$REGION"
 
-echo "[$(date -u +%FT%TZ)] Volume ${VOLUME_ID} deleted."
+log "Volume ${VOLUME_ID} deleted."
