@@ -35,6 +35,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 43200  # 12 hours — polling Batch jobs can take 8+ hours
 
       - name: Determine pipeline run ID
         id: run-id
