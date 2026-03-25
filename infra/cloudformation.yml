@@ -169,6 +169,19 @@ Resources:
                 Resource:
                   - !GetAtt OsmBuildLogGroup.Arn
                   - !GetAtt ScoreLogGroup.Arn
+              - Sid: EBSAttachDetach
+                Effect: Allow
+                Action:
+                  - ec2:AttachVolume
+                  - ec2:DetachVolume
+                Resource:
+                  - !Sub "arn:aws:ec2:us-east-1:${AWS::AccountId}:volume/*"
+                  - !Sub "arn:aws:ec2:us-east-1:${AWS::AccountId}:instance/*"
+              - Sid: EC2DescribeForEBS
+                Effect: Allow
+                Action:
+                  - ec2:DescribeVolumes
+                Resource: "*"
 
   # ─── IAM: Batch Execution Role (ECS task execution) ──────────────
   BatchExecutionRole:
@@ -370,6 +383,7 @@ Resources:
         Image: !Sub "ghcr.io/${GitHubOrg}/${GitHubRepo}:latest"
         Vcpus: 8
         Memory: 61440
+        Privileged: true
         JobRoleArn: !GetAtt BatchJobRole.Arn
         ExecutionRoleArn: !GetAtt BatchExecutionRole.Arn
         Command:
@@ -405,6 +419,7 @@ Resources:
         Image: !Sub "ghcr.io/${GitHubOrg}/${GitHubRepo}:latest"
         Vcpus: 4
         Memory: 28672
+        Privileged: true
         JobRoleArn: !GetAtt BatchJobRole.Arn
         ExecutionRoleArn: !GetAtt BatchExecutionRole.Arn
         Command:

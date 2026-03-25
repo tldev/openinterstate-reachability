@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Download US PBF, filter with osmium, and build OSRM dataset.
-# Runs inside the Batch container with /mnt/osrm mounted.
+# Attaches EBS volume, runs the build, then detaches on exit.
 #
 set -euo pipefail
 
@@ -9,13 +9,20 @@ SCRIPT_NAME="osm-build"
 OSRM_DIR="/mnt/osrm"
 OSRM_PROFILES="${OSRM_PROFILES:-/opt/osrm-profiles}"
 PBF_URL="https://download.geofabrik.de/north-america/us-latest.osm.pbf"
-WORK_DIR="${OSRM_DIR}/work"
-MARKER_DIR="${OSRM_DIR}/markers"
+EBS_VOLUME_ID="${EBS_VOLUME_ID:?EBS_VOLUME_ID must be set}"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 log() { echo "[${SCRIPT_NAME}][$(date -u +%FT%TZ)] $*"; }
-trap 'log "ERROR: osm-build failed at line $LINENO (exit code $?)"' ERR
+trap 'log "ERROR: osm-build failed at line $LINENO (exit code $?)"; bash "${SCRIPTS_DIR}/unmount-ebs.sh" "$EBS_VOLUME_ID" "$OSRM_DIR" || true' ERR
+trap 'bash "${SCRIPTS_DIR}/unmount-ebs.sh" "$EBS_VOLUME_ID" "$OSRM_DIR" || true' EXIT
 
 log "Starting osm-build pipeline"
+
+# ─── Attach and mount EBS volume ─────────────────────────────────
+bash "${SCRIPTS_DIR}/mount-ebs.sh" "$EBS_VOLUME_ID" "$OSRM_DIR"
+
+WORK_DIR="${OSRM_DIR}/work"
+MARKER_DIR="${OSRM_DIR}/markers"
 log "OSRM output directory: ${OSRM_DIR}"
 mkdir -p "$WORK_DIR" "$MARKER_DIR"
 
