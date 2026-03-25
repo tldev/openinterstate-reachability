@@ -435,8 +435,8 @@ Resources:
       Type: container
       ContainerProperties:
         Image: !Sub "ghcr.io/${GitHubOrg}/${GitHubRepo}:latest"
-        Vcpus: 4
-        Memory: 28672
+        Vcpus: 16
+        Memory: 122880
         Privileged: true
         JobRoleArn: !GetAtt BatchJobRole.Arn
         ExecutionRoleArn: !GetAtt BatchExecutionRole.Arn
