@@ -12,17 +12,18 @@ struct Cli {
     /// Database URL for the reachability seed database
     #[arg(
         long,
+        global = true,
         env = "DATABASE_URL",
         default_value = "postgres://osm:osm_dev@localhost:5433/osm"
     )]
     database_url: String,
 
     /// OSRM base URL used for reachability scoring
-    #[arg(long, env = "OSRM_URL", default_value = "http://localhost:5000")]
+    #[arg(long, global = true, env = "OSRM_URL", default_value = "http://localhost:5000")]
     osrm_url: String,
 
     /// Max number of parallel OSRM requests
-    #[arg(long, env = "OSRM_PARALLELISM", default_value = "16")]
+    #[arg(long, global = true, env = "OSRM_PARALLELISM", default_value = "16")]
     osrm_parallelism: usize,
 
     #[command(subcommand)]
@@ -99,5 +100,46 @@ mod tests {
     fn accepts_explicit_score_subcommand() {
         let cli = Cli::try_parse_from(["pike-score", "score"]).expect("parse score");
         assert!(matches!(cli.command.unwrap_or(Command::Score), Command::Score));
+    }
+
+    #[test]
+    fn accepts_flags_after_score_subcommand() {
+        // This is how score.sh invokes pike-score
+        let result = Cli::try_parse_from([
+            "pike-score",
+            "score",
+            "--osrm-parallelism", "16",
+            "--osrm-url", "http://localhost:5000",
+            "--database-url", "postgresql://pike@localhost/pike_scoring",
+        ]);
+        assert!(result.is_ok(), "score.sh invocation should parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn accepts_flags_before_score_subcommand() {
+        // Alternative invocation with flags before subcommand
+        let cli = Cli::try_parse_from([
+            "pike-score",
+            "--osrm-parallelism", "16",
+            "--osrm-url", "http://localhost:5000",
+            "--database-url", "postgresql://pike@localhost/pike_scoring",
+            "score",
+        ]).expect("flags before subcommand should parse");
+        assert_eq!(cli.database_url, "postgresql://pike@localhost/pike_scoring");
+        assert_eq!(cli.osrm_url, "http://localhost:5000");
+        assert_eq!(cli.osrm_parallelism, 16);
+    }
+
+    #[test]
+    fn accepts_flags_without_subcommand() {
+        // Omit subcommand entirely — defaults to Score
+        let cli = Cli::try_parse_from([
+            "pike-score",
+            "--osrm-parallelism", "16",
+            "--osrm-url", "http://localhost:5000",
+            "--database-url", "postgresql://pike@localhost/pike_scoring",
+        ]).expect("flags without subcommand should parse");
+        assert_eq!(cli.database_url, "postgresql://pike@localhost/pike_scoring");
+        assert!(cli.command.is_none());
     }
 }
