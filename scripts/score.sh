@@ -11,7 +11,7 @@ OSRM_DIR="/mnt/osrm"
 PIPELINE_RUN_ID="${PIPELINE_RUN_ID:?PIPELINE_RUN_ID must be set}"
 S3_BUCKET="${S3_BUCKET:?S3_BUCKET must be set}"
 EBS_VOLUME_ID="${EBS_VOLUME_ID:?EBS_VOLUME_ID must be set}"
-OI_REPO="${OI_REPO:-tldev/openinterstate}"
+OI_RELEASE_TAG="${OI_RELEASE_TAG:-}"
 OSRM_PORT="${OSRM_PORT:-5000}"
 PG_DB="pike_scoring"
 PG_USER="pike"
@@ -90,28 +90,29 @@ su - postgres -c "createdb -O ${PG_USER} ${PG_DB}" 2>/dev/null || true
 su - postgres -c "psql -d ${PG_DB} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'"
 log "PostgreSQL ready with database ${PG_DB}"
 
-# ─── Fetch OpenInterstate release ────────────────────────────────
+# ─── Fetch OpenInterstate release from S3 ──────────────────────────
+# The GHA workflow downloads the OI release (which requires GitHub auth
+# for private repos) and stages it to S3. The container pulls from S3.
 OI_DIR="/tmp/openinterstate"
 OI_DATA_DIR="${OI_DIR}/data"
 mkdir -p "$OI_DIR" "$OI_DATA_DIR"
 
-log "Fetching latest OpenInterstate release from ${OI_REPO}..."
-gh release download \
-  --repo "$OI_REPO" \
-  --pattern '*.tar.gz' \
-  --dir "$OI_DIR" \
-  --clobber
+S3_OI_PREFIX="s3://${S3_BUCKET}/${PIPELINE_RUN_ID}/oi-release"
+log "Downloading OI release from ${S3_OI_PREFIX}/ (tag: ${OI_RELEASE_TAG:-unset})..."
+aws s3 cp "${S3_OI_PREFIX}/" "$OI_DIR/" \
+  --recursive \
+  --region "$REGION"
 
 # Validate exactly one tarball
 TARBALL_COUNT=$(find "$OI_DIR" -maxdepth 1 -name '*.tar.gz' | wc -l)
 if [[ "$TARBALL_COUNT" -ne 1 ]]; then
-  log "ERROR: Expected 1 tarball, found ${TARBALL_COUNT}" >&2
+  log "ERROR: Expected 1 tarball in S3, found ${TARBALL_COUNT}" >&2
   ls -la "$OI_DIR/" >&2
   exit 1
 fi
 
 TARBALL=$(find "$OI_DIR" -maxdepth 1 -name '*.tar.gz' -print -quit)
-log "Extracting ${TARBALL} to ${OI_DATA_DIR}..."
+log "Extracting $(basename "$TARBALL") to ${OI_DATA_DIR}..."
 tar xzf "$TARBALL" -C "$OI_DATA_DIR" --strip-components=1 2>/dev/null \
   || tar xzf "$TARBALL" -C "$OI_DATA_DIR"
 

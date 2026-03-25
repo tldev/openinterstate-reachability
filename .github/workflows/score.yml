@@ -47,17 +47,37 @@ jobs:
       - name: Resolve OI release tag
         id: oi
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
         run: |
           OI_TAG="${{ github.event.client_payload.release_tag }}"
           if [[ -z "$OI_TAG" ]]; then
             OI_TAG="${{ inputs.oi_release_tag }}"
           fi
           if [[ -z "$OI_TAG" ]]; then
-            OI_TAG=$(gh release view --repo tldev/openinterstate --json tagName -q '.tagName' 2>/dev/null || echo "latest")
+            OI_TAG=$(gh release view --repo tldev/openinterstate --json tagName -q '.tagName')
           fi
           echo "tag=${OI_TAG}" >> "$GITHUB_OUTPUT"
           echo "Resolved OI release tag: ${OI_TAG}"
+
+      - name: Download OI release and stage to S3
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+        run: |
+          mkdir -p /tmp/oi-release
+          echo "Downloading OI release ${{ steps.oi.outputs.tag }} from tldev/openinterstate..."
+          gh release download "${{ steps.oi.outputs.tag }}" \
+            --repo tldev/openinterstate \
+            --pattern '*.tar.gz' \
+            --dir /tmp/oi-release
+
+          TARBALL=$(ls /tmp/oi-release/*.tar.gz)
+          TARBALL_NAME=$(basename "$TARBALL")
+          echo "Downloaded: ${TARBALL_NAME} ($(du -h "$TARBALL" | cut -f1))"
+
+          S3_PREFIX="s3://${S3_BUCKET}/${{ steps.run-id.outputs.id }}"
+          aws s3 cp "$TARBALL" "${S3_PREFIX}/oi-release/${TARBALL_NAME}" \
+            --region "$AWS_REGION"
+          echo "Staged OI release to ${S3_PREFIX}/oi-release/"
 
       - name: Determine availability zone
         id: az
