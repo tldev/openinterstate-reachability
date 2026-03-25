@@ -46,8 +46,10 @@ if [[ ! -f "${OSRM_DIR}/.osm-build-complete" ]]; then
 fi
 
 OSRM_BASE=$(grep '^osrm_base=' "${OSRM_DIR}/.osm-build-complete" | cut -d= -f2)
-if [[ -z "$OSRM_BASE" || ! -f "${OSRM_BASE}.osrm" ]]; then
+if [[ -z "$OSRM_BASE" || ! -f "${OSRM_BASE}.osrm.nbg_nodes" ]]; then
   log "ERROR: OSRM dataset not found at ${OSRM_BASE}" >&2
+  log "Contents of $(dirname "${OSRM_BASE}"):" >&2
+  ls -lh "$(dirname "${OSRM_BASE}")" >&2 2>/dev/null || true
   exit 1
 fi
 log "OSRM dataset: ${OSRM_BASE}"
