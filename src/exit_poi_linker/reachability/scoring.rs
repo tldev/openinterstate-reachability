@@ -107,7 +107,7 @@ fn unreachable_update(pair: PendingPair) -> UpdateRow {
     let (score, confidence) = unreachable_score(pair.air_distance_m);
     UpdateRow {
         exit_id: pair.exit_id,
-        poi_id: pair.place_id,
+        place_id: pair.place_id,
         route_distance_m: None,
         route_duration_s: None,
         score,
@@ -158,7 +158,7 @@ fn reachable_update(
 
     UpdateRow {
         exit_id: pair.exit_id,
-        poi_id: pair.place_id,
+        place_id: pair.place_id,
         route_distance_m: Some(route_distance_m),
         route_duration_s: Some(route_duration_s),
         score,

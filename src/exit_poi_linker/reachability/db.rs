@@ -15,16 +15,16 @@ pub(super) async fn fetch_pending_pairs(
     let qrows: Vec<(String, String, f64, f64, f64, f64, i32)> = match target_exit_ids {
         Some(ids) => {
             sqlx::query_as(
-                "SELECT c.exit_id::text, c.place_id::text, \
-                        e.latitude, e.longitude, \
-                        p.latitude, p.longitude, \
-                        c.distance_m::integer \
+                "SELECT c.exit_id, c.place_id, \
+                        e.lat, e.lon, \
+                        p.lat, p.lon, \
+                        c.distance_m \
                  FROM exit_place_links c \
-                 JOIN corridor_exits e ON e.id = c.exit_id \
-                 JOIN places p ON p.id = c.place_id \
-                 LEFT JOIN exit_poi_reachability r \
-                   ON r.exit_id = c.exit_id::text AND r.poi_id = c.place_id::text \
-                 WHERE c.exit_id::text = ANY($1) \
+                 JOIN corridor_exits e ON e.exit_id = c.exit_id \
+                 JOIN places p ON p.place_id = c.place_id \
+                 LEFT JOIN exit_place_scores r \
+                   ON r.exit_id = c.exit_id AND r.place_id = c.place_id \
+                 WHERE c.exit_id = ANY($1) \
                    AND (r.exit_id IS NULL OR r.reachability_score IS NULL OR r.reachability_confidence IS NULL)",
             )
             .bind(ids)
@@ -33,15 +33,15 @@ pub(super) async fn fetch_pending_pairs(
         }
         None => {
             sqlx::query_as(
-                "SELECT c.exit_id::text, c.place_id::text, \
-                        e.latitude, e.longitude, \
-                        p.latitude, p.longitude, \
-                        c.distance_m::integer \
+                "SELECT c.exit_id, c.place_id, \
+                        e.lat, e.lon, \
+                        p.lat, p.lon, \
+                        c.distance_m \
                  FROM exit_place_links c \
-                 JOIN corridor_exits e ON e.id = c.exit_id \
-                 JOIN places p ON p.id = c.place_id \
-                 LEFT JOIN exit_poi_reachability r \
-                   ON r.exit_id = c.exit_id::text AND r.poi_id = c.place_id::text \
+                 JOIN corridor_exits e ON e.exit_id = c.exit_id \
+                 JOIN places p ON p.place_id = c.place_id \
+                 LEFT JOIN exit_place_scores r \
+                   ON r.exit_id = c.exit_id AND r.place_id = c.place_id \
                  WHERE r.exit_id IS NULL OR r.reachability_score IS NULL OR r.reachability_confidence IS NULL",
             )
             .fetch_all(pool)
@@ -95,9 +95,9 @@ pub(super) async fn ensure_snap_hint_table(pool: &PgPool) -> Result<(), anyhow::
 
 pub(super) async fn ensure_reachability_table(pool: &PgPool) -> Result<(), anyhow::Error> {
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS exit_poi_reachability (
+        "CREATE TABLE IF NOT EXISTS exit_place_scores (
             exit_id TEXT NOT NULL,
-            poi_id TEXT NOT NULL,
+            place_id TEXT NOT NULL,
             route_distance_m INTEGER,
             route_duration_s INTEGER,
             reachable BOOLEAN,
@@ -106,7 +106,7 @@ pub(super) async fn ensure_reachability_table(pool: &PgPool) -> Result<(), anyho
             provider TEXT,
             provider_dataset_version TEXT,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            PRIMARY KEY (exit_id, poi_id)
+            PRIMARY KEY (exit_id, place_id)
         )",
     )
     .execute(pool)
@@ -125,12 +125,12 @@ pub(super) async fn flush_pending_updates(
     }
 
     sqlx::query(
-        "INSERT INTO exit_poi_reachability \
-         (exit_id, poi_id, route_distance_m, route_duration_s, reachable, \
+        "INSERT INTO exit_place_scores \
+         (exit_id, place_id, route_distance_m, route_duration_s, reachable, \
           reachability_score, reachability_confidence, provider, provider_dataset_version, updated_at) \
          SELECT \
             u.exit_id, \
-            u.poi_id, \
+            u.place_id, \
             NULLIF(u.route_distance_m, -1), \
             NULLIF(u.route_duration_s, -1), \
             u.reachable, \
@@ -142,14 +142,14 @@ pub(super) async fn flush_pending_updates(
          FROM ( \
              SELECT \
                  UNNEST($1::text[]) AS exit_id, \
-                 UNNEST($2::text[]) AS poi_id, \
+                 UNNEST($2::text[]) AS place_id, \
                  UNNEST($3::integer[]) AS route_distance_m, \
                  UNNEST($4::integer[]) AS route_duration_s, \
                  UNNEST($5::boolean[]) AS reachable, \
                  UNNEST($6::double precision[]) AS score, \
                  UNNEST($7::double precision[]) AS confidence \
          ) u \
-         ON CONFLICT (exit_id, poi_id) DO UPDATE \
+         ON CONFLICT (exit_id, place_id) DO UPDATE \
          SET route_distance_m = EXCLUDED.route_distance_m, \
              route_duration_s = EXCLUDED.route_duration_s, \
              reachable = EXCLUDED.reachable, \
@@ -160,7 +160,7 @@ pub(super) async fn flush_pending_updates(
              updated_at = NOW()",
     )
     .bind(&pending.exit_ids)
-    .bind(&pending.poi_ids)
+    .bind(&pending.place_ids)
     .bind(&pending.route_distance_ms)
     .bind(&pending.route_duration_ss)
     .bind(&pending.reachables)
@@ -171,7 +171,7 @@ pub(super) async fn flush_pending_updates(
     .await?;
 
     pending.exit_ids.clear();
-    pending.poi_ids.clear();
+    pending.place_ids.clear();
     pending.route_distance_ms.clear();
     pending.route_duration_ss.clear();
     pending.scores.clear();
