@@ -19,6 +19,7 @@ VOLUME_ID="${3:?Usage: submit-batch-job.sh <job-definition> <job-queue> <volume-
 PIPELINE_RUN_ID="${4:?Usage: submit-batch-job.sh <job-definition> <job-queue> <volume-id> <pipeline-run-id>}"
 REGION="${AWS_REGION:-us-east-1}"
 S3_BUCKET="${S3_BUCKET:-}"
+OI_RELEASE_TAG="${OI_RELEASE_TAG:-}"
 
 log() { echo "[submit-batch-job][$(date -u +%FT%TZ)] $*" >&2; }
 
@@ -38,10 +39,13 @@ ENV_OVERRIDES=$(jq -n \
   --arg pipeline_run_id "$PIPELINE_RUN_ID" \
   --arg volume_id "$VOLUME_ID" \
   --arg s3_bucket "$S3_BUCKET" \
+  --arg oi_release_tag "$OI_RELEASE_TAG" \
   '[
     {name: "PIPELINE_RUN_ID", value: $pipeline_run_id},
     {name: "EBS_VOLUME_ID", value: $volume_id}
-  ] + (if $s3_bucket != "" then [{name: "S3_BUCKET", value: $s3_bucket}] else [] end)')
+  ]
+  + (if $s3_bucket != "" then [{name: "S3_BUCKET", value: $s3_bucket}] else [] end)
+  + (if $oi_release_tag != "" then [{name: "OI_RELEASE_TAG", value: $oi_release_tag}] else [] end)')
 
 JOB_ID=$(aws batch submit-job \
   --job-name "$JOB_NAME" \
