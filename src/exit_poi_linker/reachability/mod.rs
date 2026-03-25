@@ -47,7 +47,7 @@ struct PendingPair {
     exit_lon: f64,
     place_lat: f64,
     place_lon: f64,
-    air_distance_m: i32,
+    air_distance_m: f64,
 }
 
 #[derive(Clone, Debug)]

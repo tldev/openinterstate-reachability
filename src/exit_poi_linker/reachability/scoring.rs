@@ -104,7 +104,8 @@ fn unreachable_updates(pairs: Vec<PendingPair>) -> Vec<UpdateRow> {
 }
 
 fn unreachable_update(pair: PendingPair) -> UpdateRow {
-    let (score, confidence) = unreachable_score(pair.air_distance_m);
+    let air_distance_m = pair.air_distance_m.round().clamp(0.0, i32::MAX as f64) as i32;
+    let (score, confidence) = unreachable_score(air_distance_m);
     UpdateRow {
         exit_id: pair.exit_id,
         place_id: pair.place_id,
@@ -154,7 +155,8 @@ fn reachable_update(
     let route_duration_s = duration_raw_s
         .map(|value| value.round().clamp(0.0, i32::MAX as f64) as i32)
         .unwrap_or(route_distance_m / 25);
-    let (score, confidence) = reachable_score(route_distance_m, pair.air_distance_m);
+    let air_distance_m = pair.air_distance_m.round().clamp(0.0, i32::MAX as f64) as i32;
+    let (score, confidence) = reachable_score(route_distance_m, air_distance_m);
 
     UpdateRow {
         exit_id: pair.exit_id,

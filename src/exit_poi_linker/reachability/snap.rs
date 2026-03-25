@@ -45,7 +45,7 @@ pub(super) async fn prepare_snap_hints(
     }
 
     for pairs in pairs_by_exit.values_mut() {
-        pairs.sort_by_key(|p| p.air_distance_m);
+        pairs.sort_by(|a, b| a.air_distance_m.partial_cmp(&b.air_distance_m).unwrap_or(std::cmp::Ordering::Equal));
     }
 
     let context = SnapHintContext {

@@ -116,7 +116,7 @@ pub(super) async fn resolve_exit_snap_candidate(
     }
 
     let mut probes: Vec<&PendingPair> = probe_pairs.iter().collect();
-    probes.sort_by_key(|pair| pair.air_distance_m);
+    probes.sort_by(|a, b| a.air_distance_m.partial_cmp(&b.air_distance_m).unwrap_or(std::cmp::Ordering::Equal));
     probes.truncate(EXIT_SNAP_PROBE_PAIR_COUNT);
 
     if probes.is_empty() {

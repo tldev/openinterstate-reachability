@@ -12,7 +12,7 @@ pub(super) async fn fetch_pending_pairs(
     pool: &PgPool,
     target_exit_ids: Option<&[String]>,
 ) -> Result<Vec<PendingPair>, anyhow::Error> {
-    let qrows: Vec<(String, String, f64, f64, f64, f64, i32)> = match target_exit_ids {
+    let qrows: Vec<(String, String, f64, f64, f64, f64, f64)> = match target_exit_ids {
         Some(ids) => {
             sqlx::query_as(
                 "SELECT c.exit_id, c.place_id, \

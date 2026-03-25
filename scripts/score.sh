@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS exit_place_links (
   exit_id TEXT,
   place_id TEXT,
   category TEXT,
-  distance_m INTEGER,
+  distance_m DOUBLE PRECISION,
   rank INTEGER
 );
 
@@ -179,7 +179,8 @@ ALTER TABLE places ADD COLUMN lon DOUBLE PRECISION;
 UPDATE places SET
   lon = (geometry_geojson::json->'coordinates'->>0)::double precision,
   lat = (geometry_geojson::json->'coordinates'->>1)::double precision
-WHERE geometry_geojson IS NOT NULL;
+WHERE geometry_geojson IS NOT NULL
+  AND geometry_geojson::json->>'type' = 'Point';
 SQL
 
 EXIT_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM corridor_exits")
@@ -220,7 +221,12 @@ log "Uploading output to ${S3_PREFIX}/"
 
 aws s3 cp "$REACHABILITY_CSV" "${S3_PREFIX}/reachability.csv" --region "$REGION"
 
+# Export snap hints from database for release artifact
 SNAP_HINTS="${OUTPUT_DIR}/osrm_snap_hints.csv"
+psql -U "$PG_USER" -d "$PG_DB" -c \
+  "\copy (SELECT * FROM osrm_snap_hints ORDER BY endpoint_kind, endpoint_id) TO '${SNAP_HINTS}' WITH (FORMAT csv, HEADER true)" \
+  2>/dev/null || true
+
 if [[ -f "$SNAP_HINTS" ]]; then
   aws s3 cp "$SNAP_HINTS" "${S3_PREFIX}/osrm_snap_hints.csv" --region "$REGION"
   log "Uploaded osrm_snap_hints.csv"
