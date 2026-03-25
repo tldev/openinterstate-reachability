@@ -68,8 +68,12 @@ async fn connect_pool(database_url: &str) -> anyhow::Result<PgPool> {
 }
 
 fn configure_osrm_env(cli: &Cli) {
-    std::env::set_var("OSRM_URL", &cli.osrm_url);
-    std::env::set_var("OSRM_PARALLELISM", cli.osrm_parallelism.to_string());
+    // SAFETY: called once from main before spawning threads.
+    // The reachability module reads these env vars to configure OSRM.
+    unsafe {
+        std::env::set_var("OSRM_URL", &cli.osrm_url);
+        std::env::set_var("OSRM_PARALLELISM", cli.osrm_parallelism.to_string());
+    }
 }
 
 async fn run_score_reachability(pool: &PgPool) -> anyhow::Result<()> {
