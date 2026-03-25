@@ -101,7 +101,10 @@ ensure_dev_node() {
     local maj="${majmin%%:*}"
     local min="${majmin##*:}"
     log "Creating device node ${devpath} (${maj}:${min})"
-    mknod "$devpath" b "$maj" "$min"
+    if ! mknod "$devpath" b "$maj" "$min"; then
+      log "WARNING: mknod failed for ${devpath}"
+      return 1
+    fi
     return 0
   fi
   return 1
@@ -115,7 +118,7 @@ log "Discovering block device..."
 REAL_DEVICE=""
 for i in $(seq 1 15); do
   # Method 1: direct device path (non-NVMe instances)
-  ensure_dev_node "$DEVICE" 2>/dev/null || true
+  ensure_dev_node "$DEVICE" || true
   if [[ -b "$DEVICE" ]]; then
     REAL_DEVICE="$DEVICE"
     break
@@ -126,7 +129,7 @@ for i in $(seq 1 15); do
     LSBLK_AFTER=$(lsblk -dpn -o NAME 2>/dev/null | sort || true)
     NEW_DEV=$(comm -13 <(echo "${LSBLK_BEFORE:-}") <(echo "$LSBLK_AFTER") | head -1) || true
     if [[ -n "$NEW_DEV" ]]; then
-      ensure_dev_node "$NEW_DEV" 2>/dev/null || true
+      ensure_dev_node "$NEW_DEV" || true
       if [[ -b "$NEW_DEV" ]]; then
         REAL_DEVICE="$NEW_DEV"
         break
@@ -134,17 +137,19 @@ for i in $(seq 1 15); do
     fi
   fi
 
-  # Method 3: sysfs scan for NVMe devices (already-attached or fallback)
+  # Method 3: sysfs NVMe serial match (already-attached or fallback)
+  # AWS Nitro stores the volume ID (without 'vol-' prefix, no dashes)
+  # in the NVMe device serial at /sys/block/nvmeXn1/device/serial
+  VOLID_NODASH="${VOLUME_ID#vol-}"
   for sysdir in /sys/block/nvme*; do
-    if [[ -f "${sysdir}/dev" ]]; then
-      devname="${sysdir##*/}"
-      devpath="/dev/${devname}"
-      ensure_dev_node "$devpath" 2>/dev/null || true
-      if [[ -b "$devpath" ]]; then
-        # Check size to skip root volume (typically < 100G)
-        size_bytes=$(cat "${sysdir}/size" 2>/dev/null || echo 0)
-        size_gb=$(( size_bytes * 512 / 1073741824 ))
-        if [[ $size_gb -ge 100 ]]; then
+    serial_file="${sysdir}/device/serial"
+    if [[ -f "$serial_file" ]]; then
+      serial=$(cat "$serial_file" | tr -d '[:space:]')
+      if [[ "$serial" == *"${VOLID_NODASH}"* ]]; then
+        devname="${sysdir##*/}"
+        devpath="/dev/${devname}"
+        ensure_dev_node "$devpath" || true
+        if [[ -b "$devpath" ]]; then
           REAL_DEVICE="$devpath"
           break 2
         fi
