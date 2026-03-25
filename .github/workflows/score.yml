@@ -164,7 +164,7 @@ jobs:
             OI_RELEASE_TAG="${{ steps.oi.outputs.tag }}" \
             bash scripts/submit-batch-job.sh \
             "$JOB_DEF_SCORE" \
-            "$JOB_QUEUE_SPOT" \
+            "$JOB_QUEUE_ONDEMAND" \
             "${{ steps.ebs.outputs.volume_id }}" \
             "${{ steps.run-id.outputs.id }}")
           echo "job_id=${JOB_ID}" >> "$GITHUB_OUTPUT"
