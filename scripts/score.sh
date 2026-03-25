@@ -202,7 +202,7 @@ log "Loaded: ${EXIT_COUNT} exits, ${PLACE_COUNT} places, ${LINK_COUNT} exit-plac
 mkdir -p "$OUTPUT_DIR"
 
 log "Running pike-score (${OSRM_PORT}, parallelism 16)..."
-pike-score score \
+pike-score \
   --osrm-parallelism 16 \
   --osrm-url "http://localhost:${OSRM_PORT}" \
   --database-url "postgresql://${PG_USER}@localhost/${PG_DB}"
