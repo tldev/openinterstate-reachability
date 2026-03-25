@@ -29,3 +29,16 @@
   - score.sh exports results from exit_place_scores table to CSV via psql \copy
   - All 7 unit tests pass
 - Pipeline is now feature-complete (12 issues, 8 PRs). To test-drive: add AWS secrets, deploy CloudFormation, trigger workflow.
+
+## 2026-03-25 -- Pipeline Debugging (PRs #34-#39)
+
+Worked through 5 successive blockers in the scoring pipeline, each fix getting further:
+
+1. **PR #34 — OSRM file check**: score.sh checked for `.osrm` but OSRM v5.27.1 produces `.osrm.nbg_nodes` etc. Fixed existence check.
+2. **PR #35 — EBS volume reuse**: Added `ebs_volume_id` workflow input to skip osm-build phase, saving ~90 min per retry.
+3. **PR #36 — Score job memory**: OSRM CONUS MLD needs ~47GB+ RAM. Increased score job from 28GB→120GB, 4→16 vCPUs.
+4. **PR #37 — OSRM startup timeout**: OSRM takes ~325s to load 60GB dataset. Increased health check from 5→15 min.
+5. **PR #38 — Duplicate exit IDs**: OI CSVs contain duplicate exit_id values. Removed PRIMARY KEY from CREATE TABLE, load via \copy, then dedup with ctid trick, then add UNIQUE INDEX.
+6. **PR #39 — pike-score clap arg parsing**: Root cause of "relation exit_place_scores does not exist" error. `pike-score score --database-url ...` silently fails because clap 4 doesn't allow parent args after a subcommand. Fixed by: (a) removing explicit `score` subcommand from score.sh invocation, (b) adding `global = true` to all CLI args. Confirmed with new test that reproduces the exact failure.
+
+EBS volume vol-041f5aa784f19c00e from run 23554122059-1 has been reused across retries. After PR #39 merge + Docker rebuild, pipeline should complete end-to-end.
