@@ -35,16 +35,18 @@ const SNAP_AIR_DISTANCE_FLOOR_M: f64 = 50.0;
 const DEFAULT_OSRM_DATASET_KEY: &str = "unspecified";
 const SNAP_SCOPE_PRODUCT: &str = "product";
 const SNAP_KIND_EXIT: &str = "exit";
+// Kept as "poi" (not "place") — this is a stored key in osrm_snap_hints.endpoint_kind;
+// changing it would invalidate cached snap hint data.
 const SNAP_KIND_POI: &str = "poi";
 
 #[derive(Clone, Debug)]
 struct PendingPair {
     exit_id: String,
-    poi_id: String,
+    place_id: String,
     exit_lat: f64,
     exit_lon: f64,
-    poi_lat: f64,
-    poi_lon: f64,
+    place_lat: f64,
+    place_lon: f64,
     air_distance_m: i32,
 }
 
@@ -210,21 +212,21 @@ async fn ensure_required_tables(pool: &PgPool) -> Result<(), anyhow::Error> {
     ensure_reachability_table(pool).await?;
     ensure_snap_hint_table(pool).await?;
 
-    let has_candidates_table = table_exists(pool, "public.exit_poi_candidates").await?;
+    let has_links_table = table_exists(pool, "public.exit_place_links").await?;
     let has_reachability_table = table_exists(pool, "public.exit_poi_reachability").await?;
-    let has_exits_table = table_exists(pool, "public.exits").await?;
-    let has_pois_table = table_exists(pool, "public.pois").await?;
-    if !has_candidates_table {
-        anyhow::bail!("exit_poi_candidates table is missing");
+    let has_exits_table = table_exists(pool, "public.corridor_exits").await?;
+    let has_places_table = table_exists(pool, "public.places").await?;
+    if !has_links_table {
+        anyhow::bail!("exit_place_links table is missing");
     }
     if !has_reachability_table {
         anyhow::bail!("exit_poi_reachability table is missing");
     }
     if !has_exits_table {
-        anyhow::bail!("exits table is missing");
+        anyhow::bail!("corridor_exits table is missing");
     }
-    if !has_pois_table {
-        anyhow::bail!("pois table is missing");
+    if !has_places_table {
+        anyhow::bail!("places table is missing");
     }
     Ok(())
 }

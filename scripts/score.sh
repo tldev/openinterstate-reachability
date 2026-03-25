@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Run reachability scoring: start OSRM + PostGIS, fetch OI release,
-# load seed data, run pike-import score, export CSV, upload to S3.
+# Run reachability scoring: start OSRM + PostgreSQL, fetch OI release,
+# load seed data, run pike-score, export CSV, upload to S3.
 # Attaches EBS volume (OSRM data from osm-build), detaches on exit.
 #
 set -euo pipefail
@@ -81,13 +81,12 @@ if [[ "$OSRM_READY" != "true" ]]; then
   exit 1
 fi
 
-# ─── Start PostgreSQL + PostGIS ───────────────────────────────────
+# ─── Start PostgreSQL ────────────────────────────────────────────
 log "Starting PostgreSQL ${PG_VERSION}..."
 pg_ctlcluster "$PG_VERSION" main start
 
 su - postgres -c "psql -c \"CREATE USER ${PG_USER} WITH SUPERUSER;\"" 2>/dev/null || true
 su - postgres -c "createdb -O ${PG_USER} ${PG_DB}" 2>/dev/null || true
-su - postgres -c "psql -d ${PG_DB} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'"
 log "PostgreSQL ready with database ${PG_DB}"
 
 # ─── Fetch OpenInterstate release from S3 ──────────────────────────
@@ -133,8 +132,8 @@ PLACES_CSV=$(find_csv "places.csv")
 LINKS_CSV=$(find_csv "exit_place_links.csv")
 log "Found CSVs: $(basename "$EXITS_CSV"), $(basename "$PLACES_CSV"), $(basename "$LINKS_CSV")"
 
-# ─── Load OI data into PostGIS ────────────────────────────────────
-log "Loading OI data into PostGIS..."
+# ─── Load OI data into PostgreSQL ─────────────────────────────────
+log "Loading OI data into PostgreSQL..."
 
 psql -U "$PG_USER" -d "$PG_DB" <<SQL
 CREATE TABLE IF NOT EXISTS corridor_exits (
@@ -172,29 +171,6 @@ EXIT_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM corridor_
 PLACE_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM places")
 LINK_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM exit_place_links")
 log "Loaded: ${EXIT_COUNT} exits, ${PLACE_COUNT} places, ${LINK_COUNT} exit-place links"
-
-# ─── Create views for pike-score ──────────────────────────────────
-# pike-score expects tables named exits/pois/exit_poi_candidates with
-# PostGIS geometry columns. Bridge from OI's raw lat/lon schema.
-log "Creating schema views for pike-score..."
-psql -U "$PG_USER" -d "$PG_DB" <<SQL
-CREATE VIEW exits AS
-  SELECT id::text AS id,
-         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326) AS geom
-  FROM corridor_exits;
-
-CREATE VIEW pois AS
-  SELECT id::text AS id,
-         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326) AS geom
-  FROM places;
-
-CREATE VIEW exit_poi_candidates AS
-  SELECT exit_id::text AS exit_id,
-         place_id::text AS poi_id,
-         distance_m::integer AS distance_m
-  FROM exit_place_links;
-SQL
-log "Schema views created"
 
 # ─── Run pike-score ───────────────────────────────────────────────
 mkdir -p "$OUTPUT_DIR"

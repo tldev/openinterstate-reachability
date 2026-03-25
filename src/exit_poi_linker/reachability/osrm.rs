@@ -211,7 +211,7 @@ async fn probe_exit_candidate(
     hints.push(candidate.snap.hint.clone());
 
     for pair in probe_pairs {
-        coords.push(format!("{:.7},{:.7}", pair.poi_lon, pair.poi_lat));
+        coords.push(format!("{:.7},{:.7}", pair.place_lon, pair.place_lat));
         hints.push(String::new());
     }
 

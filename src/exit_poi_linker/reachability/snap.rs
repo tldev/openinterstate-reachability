@@ -28,16 +28,16 @@ pub(super) async fn prepare_snap_hints(
     parallelism: usize,
 ) -> Result<(HashMap<String, SnapPoint>, HashMap<String, SnapPoint>), anyhow::Error> {
     let mut unique_exits: HashMap<String, (f64, f64)> = HashMap::new();
-    let mut unique_pois: HashMap<String, (f64, f64)> = HashMap::new();
+    let mut unique_places: HashMap<String, (f64, f64)> = HashMap::new();
     let mut pairs_by_exit: HashMap<String, Vec<PendingPair>> = HashMap::new();
 
     for pair in rows {
         unique_exits
             .entry(pair.exit_id.clone())
             .or_insert((pair.exit_lon, pair.exit_lat));
-        unique_pois
-            .entry(pair.poi_id.clone())
-            .or_insert((pair.poi_lon, pair.poi_lat));
+        unique_places
+            .entry(pair.place_id.clone())
+            .or_insert((pair.place_lon, pair.place_lat));
         pairs_by_exit
             .entry(pair.exit_id.clone())
             .or_default()
@@ -57,7 +57,7 @@ pub(super) async fn prepare_snap_hints(
         parallelism,
     };
 
-    let poi_hints = prepare_snap_hints_for_kind(&context, SNAP_KIND_POI, &unique_pois, 1).await?;
+    let poi_hints = prepare_snap_hints_for_kind(&context, SNAP_KIND_POI, &unique_places, 1).await?;
     let exit_hints = prepare_exit_snap_hints(&context, &unique_exits, &pairs_by_exit).await?;
 
     Ok((exit_hints, poi_hints))

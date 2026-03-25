@@ -84,16 +84,16 @@ fn build_coords_and_hints(
     hints.push(exit_hint);
 
     for pair in &batch.pairs {
-        let poi_snap = poi_snap_hints.get(&pair.poi_id);
-        let poi_lon = poi_snap.map(|snap| snap.lon).unwrap_or(pair.poi_lon);
-        let poi_lat = poi_snap.map(|snap| snap.lat).unwrap_or(pair.poi_lat);
-        let poi_hint = poi_snap
+        let place_snap = poi_snap_hints.get(&pair.place_id);
+        let place_lon = place_snap.map(|snap| snap.lon).unwrap_or(pair.place_lon);
+        let place_lat = place_snap.map(|snap| snap.lat).unwrap_or(pair.place_lat);
+        let place_hint = place_snap
             .map(|snap| snap.hint.as_str())
             .unwrap_or_default()
             .to_string();
 
-        coords.push(format!("{poi_lon:.7},{poi_lat:.7}"));
-        hints.push(poi_hint);
+        coords.push(format!("{place_lon:.7},{place_lat:.7}"));
+        hints.push(place_hint);
     }
 
     (coords, hints)
@@ -107,7 +107,7 @@ fn unreachable_update(pair: PendingPair) -> UpdateRow {
     let (score, confidence) = unreachable_score(pair.air_distance_m);
     UpdateRow {
         exit_id: pair.exit_id,
-        poi_id: pair.poi_id,
+        poi_id: pair.place_id,
         route_distance_m: None,
         route_duration_s: None,
         score,
@@ -158,7 +158,7 @@ fn reachable_update(
 
     UpdateRow {
         exit_id: pair.exit_id,
-        poi_id: pair.poi_id,
+        poi_id: pair.place_id,
         route_distance_m: Some(route_distance_m),
         route_duration_s: Some(route_duration_s),
         score,
