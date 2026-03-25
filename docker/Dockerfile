@@ -9,7 +9,8 @@ RUN mkdir src && echo 'fn main() {}' > src/main.rs \
     && cargo build --release \
     && rm -rf src
 COPY src/ src/
-RUN cargo build --release --bin pike-score \
+RUN touch src/main.rs src/**/*.rs \
+    && cargo build --release --bin pike-score \
     && strip target/release/pike-score
 
 ##
