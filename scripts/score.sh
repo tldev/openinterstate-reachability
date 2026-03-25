@@ -2,7 +2,7 @@
 #
 # Run reachability scoring: start OSRM + PostGIS, fetch OI release,
 # load seed data, run pike-import score, export CSV, upload to S3.
-# Runs inside the Batch container with /mnt/osrm mounted.
+# Attaches EBS volume (OSRM data from osm-build), detaches on exit.
 #
 set -euo pipefail
 
@@ -10,6 +10,7 @@ SCRIPT_NAME="score"
 OSRM_DIR="/mnt/osrm"
 PIPELINE_RUN_ID="${PIPELINE_RUN_ID:?PIPELINE_RUN_ID must be set}"
 S3_BUCKET="${S3_BUCKET:?S3_BUCKET must be set}"
+EBS_VOLUME_ID="${EBS_VOLUME_ID:?EBS_VOLUME_ID must be set}"
 OI_REPO="${OI_REPO:-tldev/openinterstate}"
 OSRM_PORT="${OSRM_PORT:-5000}"
 PG_DB="pike_scoring"
@@ -18,6 +19,7 @@ OUTPUT_DIR="/tmp/reachability-output"
 REGION="${AWS_REGION:-us-east-1}"
 PG_VERSION=$(pg_lsclusters -h 2>/dev/null | awk '{print $1}' | head -1)
 PG_VERSION="${PG_VERSION:-15}"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 log() { echo "[${SCRIPT_NAME}][$(date -u +%FT%TZ)] $*"; }
 
@@ -28,10 +30,14 @@ cleanup() {
     wait "$OSRM_PID" 2>/dev/null || true
   fi
   pg_ctlcluster "$PG_VERSION" main stop 2>/dev/null || true
+  bash "${SCRIPTS_DIR}/unmount-ebs.sh" "$EBS_VOLUME_ID" "$OSRM_DIR" || true
 }
 trap cleanup EXIT
 
 log "Starting scoring pipeline"
+
+# ─── Attach and mount EBS volume ─────────────────────────────────
+bash "${SCRIPTS_DIR}/mount-ebs.sh" "$EBS_VOLUME_ID" "$OSRM_DIR"
 
 # ─── Verify OSRM data ────────────────────────────────────────────
 if [[ ! -f "${OSRM_DIR}/.osm-build-complete" ]]; then

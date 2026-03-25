@@ -169,6 +169,22 @@ Resources:
                 Resource:
                   - !GetAtt OsmBuildLogGroup.Arn
                   - !GetAtt ScoreLogGroup.Arn
+              - Sid: EBSAttachDetach
+                Effect: Allow
+                Action:
+                  - ec2:AttachVolume
+                  - ec2:DetachVolume
+                Resource:
+                  - !Sub "arn:aws:ec2:us-east-1:${AWS::AccountId}:volume/*"
+                  - !Sub "arn:aws:ec2:us-east-1:${AWS::AccountId}:instance/*"
+                Condition:
+                  StringEquals:
+                    "ec2:ResourceTag/project": pike-reachability
+              - Sid: EC2DescribeForEBS
+                Effect: Allow
+                Action:
+                  - ec2:DescribeVolumes
+                Resource: "*"
 
   # ─── IAM: Batch Execution Role (ECS task execution) ──────────────
   BatchExecutionRole:
@@ -259,6 +275,17 @@ Resources:
                   - !GetAtt StagingBucket.Arn
                   - !Sub "${StagingBucket.Arn}/*"
 
+  # ─── Launch Template (IMDSv2 hop limit for containers) ──────────
+  BatchLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: pike-reachability-batch
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpTokens: required
+          HttpPutResponseHopLimit: 2
+          HttpEndpoint: enabled
+
   # ─── Batch Compute Environments ──────────────────────────────────
   # ON_DEMAND for osm-build (not resumable, can't tolerate interruption)
   OnDemandComputeEnvironment:
@@ -278,6 +305,9 @@ Resources:
         SecurityGroupIds:
           - !Ref BatchSecurityGroup
         InstanceRole: !Ref BatchInstanceProfile
+        LaunchTemplate:
+          LaunchTemplateId: !Ref BatchLaunchTemplate
+          Version: $Latest
         Tags:
           project: pike-reachability
 
@@ -301,6 +331,9 @@ Resources:
         SecurityGroupIds:
           - !Ref BatchSecurityGroup
         InstanceRole: !Ref BatchInstanceProfile
+        LaunchTemplate:
+          LaunchTemplateId: !Ref BatchLaunchTemplate
+          Version: $Latest
         Tags:
           project: pike-reachability
 
@@ -370,6 +403,7 @@ Resources:
         Image: !Sub "ghcr.io/${GitHubOrg}/${GitHubRepo}:latest"
         Vcpus: 8
         Memory: 61440
+        Privileged: true
         JobRoleArn: !GetAtt BatchJobRole.Arn
         ExecutionRoleArn: !GetAtt BatchExecutionRole.Arn
         Command:
@@ -383,13 +417,6 @@ Resources:
             awslogs-group: !Ref OsmBuildLogGroup
             awslogs-region: !Ref "AWS::Region"
             awslogs-stream-prefix: osm-build
-        MountPoints:
-          - ContainerPath: /mnt/osrm
-            SourceVolume: osrm-data
-        Volumes:
-          - Name: osrm-data
-            Host:
-              SourcePath: /mnt/osrm
       Timeout:
         AttemptDurationSeconds: 28800
       RetryStrategy:
@@ -405,6 +432,7 @@ Resources:
         Image: !Sub "ghcr.io/${GitHubOrg}/${GitHubRepo}:latest"
         Vcpus: 4
         Memory: 28672
+        Privileged: true
         JobRoleArn: !GetAtt BatchJobRole.Arn
         ExecutionRoleArn: !GetAtt BatchExecutionRole.Arn
         Command:
@@ -418,13 +446,6 @@ Resources:
             awslogs-group: !Ref ScoreLogGroup
             awslogs-region: !Ref "AWS::Region"
             awslogs-stream-prefix: score
-        MountPoints:
-          - ContainerPath: /mnt/osrm
-            SourceVolume: osrm-data
-        Volumes:
-          - Name: osrm-data
-            Host:
-              SourcePath: /mnt/osrm
       Timeout:
         AttemptDurationSeconds: 21600
       RetryStrategy:
