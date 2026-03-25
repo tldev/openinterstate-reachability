@@ -85,6 +85,11 @@ fi
 log "Starting PostgreSQL ${PG_VERSION}..."
 pg_ctlcluster "$PG_VERSION" main start
 
+for i in $(seq 1 10); do
+  pg_isready -q && break
+  sleep 1
+done
+
 su - postgres -c "psql -c \"CREATE USER ${PG_USER} WITH SUPERUSER;\"" 2>/dev/null || true
 su - postgres -c "createdb -O ${PG_USER} ${PG_DB}" 2>/dev/null || true
 log "PostgreSQL ready with database ${PG_DB}"
@@ -169,6 +174,8 @@ CREATE TABLE IF NOT EXISTS exit_place_links (
 \copy corridor_exits FROM '${EXITS_CSV}' WITH (FORMAT csv, HEADER true)
 \copy places FROM '${PLACES_CSV}' WITH (FORMAT csv, HEADER true)
 \copy exit_place_links FROM '${LINKS_CSV}' WITH (FORMAT csv, HEADER true)
+
+CREATE INDEX ON exit_place_links (exit_id, place_id);
 SQL
 
 # Extract lat/lon from geometry_geojson for places (GeoJSON has no lat/lon columns)

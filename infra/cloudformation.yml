@@ -167,8 +167,8 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource:
-                  - !GetAtt OsmBuildLogGroup.Arn
-                  - !GetAtt ScoreLogGroup.Arn
+                  - !Sub "${OsmBuildLogGroup.Arn}:*"
+                  - !Sub "${ScoreLogGroup.Arn}:*"
               - Sid: EBSAttachDetach
                 Effect: Allow
                 Action:

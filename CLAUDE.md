@@ -44,8 +44,7 @@ pike-reachability/
     workflows/
       score.yml          # Main workflow: osm-build + score + release
   docker/
-    Dockerfile.scorer    # pike-import score + OSRM + PostGIS
-    docker-compose.yml   # Multi-container setup for scoring
+    Dockerfile           # pike-score + OSRM + PostgreSQL (multi-stage)
   scripts/
     osm-build.sh         # Download PBF, filter, build OSRM
     score.sh             # Load seed, run scoring, output CSV
