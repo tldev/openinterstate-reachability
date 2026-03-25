@@ -84,16 +84,16 @@ fn build_coords_and_hints(
     hints.push(exit_hint);
 
     for pair in &batch.pairs {
-        let poi_snap = poi_snap_hints.get(&pair.place_id);
-        let poi_lon = poi_snap.map(|snap| snap.lon).unwrap_or(pair.place_lon);
-        let poi_lat = poi_snap.map(|snap| snap.lat).unwrap_or(pair.place_lat);
-        let poi_hint = poi_snap
+        let place_snap = poi_snap_hints.get(&pair.place_id);
+        let place_lon = place_snap.map(|snap| snap.lon).unwrap_or(pair.place_lon);
+        let place_lat = place_snap.map(|snap| snap.lat).unwrap_or(pair.place_lat);
+        let place_hint = place_snap
             .map(|snap| snap.hint.as_str())
             .unwrap_or_default()
             .to_string();
 
-        coords.push(format!("{poi_lon:.7},{poi_lat:.7}"));
-        hints.push(poi_hint);
+        coords.push(format!("{place_lon:.7},{place_lat:.7}"));
+        hints.push(place_hint);
     }
 
     (coords, hints)

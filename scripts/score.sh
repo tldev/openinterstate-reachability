@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Run reachability scoring: start OSRM + PostGIS, fetch OI release,
-# load seed data, run pike-import score, export CSV, upload to S3.
+# Run reachability scoring: start OSRM + PostgreSQL, fetch OI release,
+# load seed data, run pike-score, export CSV, upload to S3.
 # Attaches EBS volume (OSRM data from osm-build), detaches on exit.
 #
 set -euo pipefail
@@ -81,13 +81,12 @@ if [[ "$OSRM_READY" != "true" ]]; then
   exit 1
 fi
 
-# ─── Start PostgreSQL + PostGIS ───────────────────────────────────
+# ─── Start PostgreSQL ────────────────────────────────────────────
 log "Starting PostgreSQL ${PG_VERSION}..."
 pg_ctlcluster "$PG_VERSION" main start
 
 su - postgres -c "psql -c \"CREATE USER ${PG_USER} WITH SUPERUSER;\"" 2>/dev/null || true
 su - postgres -c "createdb -O ${PG_USER} ${PG_DB}" 2>/dev/null || true
-su - postgres -c "psql -d ${PG_DB} -c 'CREATE EXTENSION IF NOT EXISTS postgis;'"
 log "PostgreSQL ready with database ${PG_DB}"
 
 # ─── Fetch OpenInterstate release from S3 ──────────────────────────
@@ -133,8 +132,8 @@ PLACES_CSV=$(find_csv "places.csv")
 LINKS_CSV=$(find_csv "exit_place_links.csv")
 log "Found CSVs: $(basename "$EXITS_CSV"), $(basename "$PLACES_CSV"), $(basename "$LINKS_CSV")"
 
-# ─── Load OI data into PostGIS ────────────────────────────────────
-log "Loading OI data into PostGIS..."
+# ─── Load OI data into PostgreSQL ─────────────────────────────────
+log "Loading OI data into PostgreSQL..."
 
 psql -U "$PG_USER" -d "$PG_DB" <<SQL
 CREATE TABLE IF NOT EXISTS corridor_exits (

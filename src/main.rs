@@ -77,7 +77,7 @@ fn configure_osrm_env(cli: &Cli) {
 }
 
 async fn run_score_reachability(pool: &PgPool) -> anyhow::Result<()> {
-    tracing::info!("Scoring reachability from exit_poi_candidates");
+    tracing::info!("Scoring reachability from exit_place_links");
     exit_poi_linker::score_and_filter_poi_reachability(pool).await?;
     tracing::info!("Reachability scoring complete");
     Ok(())

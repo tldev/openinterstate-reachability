@@ -35,6 +35,8 @@ const SNAP_AIR_DISTANCE_FLOOR_M: f64 = 50.0;
 const DEFAULT_OSRM_DATASET_KEY: &str = "unspecified";
 const SNAP_SCOPE_PRODUCT: &str = "product";
 const SNAP_KIND_EXIT: &str = "exit";
+// Kept as "poi" (not "place") — this is a stored key in osrm_snap_hints.endpoint_kind;
+// changing it would invalidate cached snap hint data.
 const SNAP_KIND_POI: &str = "poi";
 
 #[derive(Clone, Debug)]

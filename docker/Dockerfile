@@ -1,7 +1,7 @@
 ##
 ## Stage 1: Build pike-score from source
 ##
-FROM rust:1.87-bookworm AS pike-score-builder
+FROM rust:1.88-bookworm AS pike-score-builder
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
