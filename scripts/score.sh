@@ -178,7 +178,8 @@ ALTER TABLE places ADD COLUMN lat DOUBLE PRECISION;
 ALTER TABLE places ADD COLUMN lon DOUBLE PRECISION;
 UPDATE places SET
   lon = (geometry_geojson::json->'coordinates'->>0)::double precision,
-  lat = (geometry_geojson::json->'coordinates'->>1)::double precision;
+  lat = (geometry_geojson::json->'coordinates'->>1)::double precision
+WHERE geometry_geojson IS NOT NULL;
 SQL
 
 EXIT_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM corridor_exits")
@@ -202,7 +203,7 @@ log "Scoring complete"
 REACHABILITY_CSV="${OUTPUT_DIR}/reachability.csv"
 log "Exporting reachability results to CSV..."
 psql -U "$PG_USER" -d "$PG_DB" -c \
-  "\copy (SELECT exit_id, place_id, route_distance_m, route_duration_s, reachable, reachability_score FROM exit_place_scores ORDER BY exit_id, place_id) TO '${REACHABILITY_CSV}' WITH (FORMAT csv, HEADER true)"
+  "\copy (SELECT exit_id, place_id, route_distance_m, route_duration_s, reachable, reachability_score, reachability_confidence, provider, provider_dataset_version, updated_at FROM exit_place_scores ORDER BY exit_id, place_id) TO '${REACHABILITY_CSV}' WITH (FORMAT csv, HEADER true)"
 
 if [[ ! -f "$REACHABILITY_CSV" ]]; then
   log "ERROR: CSV export failed — reachability.csv not created" >&2

@@ -25,7 +25,7 @@
 - **PR #16 — pike-score binary** (issue #15): Extracted reachability scoring engine (7 files, 1,862 lines) from tldev/pike into standalone pike-score binary. Zero shared code with other pike modules.
   - New Cargo.toml with 8 crate deps (tokio, sqlx 0.8, serde, reqwest 0.12, clap 4, tracing, anyhow)
   - 3-stage Dockerfile: Rust build (with dep caching layer) → OSRM build → runtime
-  - score.sh creates PostGIS views (exits, pois, exit_poi_candidates) to bridge OI CSV schema to pike-score's expected table names/types
-  - score.sh exports results from exit_poi_reachability table to CSV via psql \copy
+  - score.sh creates tables matching OI CSV schema, extracts lat/lon from places geometry_geojson
+  - score.sh exports results from exit_place_scores table to CSV via psql \copy
   - All 7 unit tests pass
 - Pipeline is now feature-complete (12 issues, 8 PRs). To test-drive: add AWS secrets, deploy CloudFormation, trigger workflow.
