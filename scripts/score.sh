@@ -89,6 +89,7 @@ for i in $(seq 1 10); do
   pg_isready -q && break
   sleep 1
 done
+pg_isready -q || { log "ERROR: PostgreSQL failed to start within 10s" >&2; exit 1; }
 
 su - postgres -c "psql -c \"CREATE USER ${PG_USER} WITH SUPERUSER;\"" 2>/dev/null || true
 su - postgres -c "createdb -O ${PG_USER} ${PG_DB}" 2>/dev/null || true
