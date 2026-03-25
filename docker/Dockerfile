@@ -38,9 +38,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN git clone --branch v${OSRM_VERSION} --depth 1 \
       https://github.com/Project-OSRM/osrm-backend.git /tmp/osrm-backend \
+    && sed -i 's/-Werror//g' /tmp/osrm-backend/CMakeLists.txt \
     && mkdir /tmp/osrm-backend/build \
     && cd /tmp/osrm-backend/build \
-    && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_WERROR=OFF \
+    && cmake .. -DCMAKE_BUILD_TYPE=Release \
     && cmake --build . --target install -- -j$(nproc) \
     && cp -r /tmp/osrm-backend/profiles /opt/osrm-profiles \
     && rm -rf /tmp/osrm-backend
