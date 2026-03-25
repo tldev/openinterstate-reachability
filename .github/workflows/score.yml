@@ -42,6 +42,22 @@ jobs:
           PIPELINE_RUN_ID="${{ github.run_id }}-${GITHUB_RUN_ATTEMPT}"
           echo "id=${PIPELINE_RUN_ID}" >> "$GITHUB_OUTPUT"
           echo "Pipeline run ID: ${PIPELINE_RUN_ID}"
+          echo "start_time=${SECONDS}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve OI release tag
+        id: oi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OI_TAG="${{ github.event.client_payload.release_tag }}"
+          if [[ -z "$OI_TAG" ]]; then
+            OI_TAG="${{ inputs.oi_release_tag }}"
+          fi
+          if [[ -z "$OI_TAG" ]]; then
+            OI_TAG=$(gh release view --repo tldev/openinterstate --json tagName -q '.tagName' 2>/dev/null || echo "latest")
+          fi
+          echo "tag=${OI_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved OI release tag: ${OI_TAG}"
 
       - name: Determine availability zone
         id: az
@@ -85,14 +101,17 @@ jobs:
       - name: Wait for osm-build to complete
         run: |
           JOB_ID="${{ steps.osm-build.outputs.job_id }}"
-          echo "Polling osm-build job ${JOB_ID}..."
+          MAX_ATTEMPTS=480  # 8 hours at 60s intervals
+          ATTEMPT=0
+          echo "Polling osm-build job ${JOB_ID} (max ${MAX_ATTEMPTS} attempts)..."
           while true; do
+            ATTEMPT=$((ATTEMPT + 1))
             STATUS=$(aws batch describe-jobs \
               --jobs "$JOB_ID" \
               --region "$AWS_REGION" \
               --query 'jobs[0].status' \
               --output text)
-            echo "[$(date -u +%FT%TZ)] osm-build status: ${STATUS}"
+            echo "[$(date -u +%FT%TZ)] osm-build status: ${STATUS} (attempt ${ATTEMPT}/${MAX_ATTEMPTS})"
             case "$STATUS" in
               SUCCEEDED)
                 echo "osm-build completed successfully"
@@ -108,6 +127,10 @@ jobs:
                 exit 1
                 ;;
               *)
+                if [[ $ATTEMPT -ge $MAX_ATTEMPTS ]]; then
+                  echo "::error::osm-build stuck in ${STATUS} after ${ATTEMPT} attempts ($(( ATTEMPT / 60 )) hours)"
+                  exit 1
+                fi
                 sleep 60
                 ;;
             esac
@@ -117,7 +140,9 @@ jobs:
       - name: Submit score Batch job
         id: score
         run: |
-          JOB_ID=$(S3_BUCKET="${S3_BUCKET}" bash scripts/submit-batch-job.sh \
+          JOB_ID=$(S3_BUCKET="${S3_BUCKET}" \
+            OI_RELEASE_TAG="${{ steps.oi.outputs.tag }}" \
+            bash scripts/submit-batch-job.sh \
             "$JOB_DEF_SCORE" \
             "$JOB_QUEUE_SPOT" \
             "${{ steps.ebs.outputs.volume_id }}" \
@@ -127,14 +152,17 @@ jobs:
       - name: Wait for score to complete
         run: |
           JOB_ID="${{ steps.score.outputs.job_id }}"
-          echo "Polling score job ${JOB_ID}..."
+          MAX_ATTEMPTS=360  # 6 hours at 60s intervals
+          ATTEMPT=0
+          echo "Polling score job ${JOB_ID} (max ${MAX_ATTEMPTS} attempts)..."
           while true; do
+            ATTEMPT=$((ATTEMPT + 1))
             STATUS=$(aws batch describe-jobs \
               --jobs "$JOB_ID" \
               --region "$AWS_REGION" \
               --query 'jobs[0].status' \
               --output text)
-            echo "[$(date -u +%FT%TZ)] score status: ${STATUS}"
+            echo "[$(date -u +%FT%TZ)] score status: ${STATUS} (attempt ${ATTEMPT}/${MAX_ATTEMPTS})"
             case "$STATUS" in
               SUCCEEDED)
                 echo "Scoring completed successfully"
@@ -150,6 +178,10 @@ jobs:
                 exit 1
                 ;;
               *)
+                if [[ $ATTEMPT -ge $MAX_ATTEMPTS ]]; then
+                  echo "::error::score stuck in ${STATUS} after ${ATTEMPT} attempts ($(( ATTEMPT / 60 )) hours)"
+                  exit 1
+                fi
                 sleep 60
                 ;;
             esac
@@ -179,22 +211,30 @@ jobs:
           TAG="score-$(date -u +%Y%m%d)-${SHORT_SHA}"
           ROW_COUNT=$(tail -n +2 output/reachability.csv | wc -l)
           FILE_SIZE=$(du -h output/reachability.csv | cut -f1)
-
-          # Determine OI release used
-          OI_TAG="${{ github.event.client_payload.release_tag || inputs.oi_release_tag || 'latest' }}"
-
-          RELEASE_BODY="## Reachability Scoring Run
-
-          - **OI release:** ${OI_TAG}
-          - **Rows:** ${ROW_COUNT}
-          - **File size:** ${FILE_SIZE}
-          - **Pipeline run:** ${{ steps.run-id.outputs.id }}
-          - **Workflow:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ELAPSED=$(( SECONDS - ${{ steps.run-id.outputs.start_time }} ))
+          DURATION="$(( ELAPSED / 3600 ))h $(( (ELAPSED % 3600) / 60 ))m"
 
           ASSETS=(output/reachability.csv)
+          SNAP_NOTE=""
           if [[ -f output/osrm_snap_hints.csv ]]; then
             ASSETS+=(output/osrm_snap_hints.csv)
+            SNAP_NOTE="- **Snap hints:** included (for incremental scoring)"
           fi
+
+          RELEASE_BODY=$(cat <<EOF
+          ## Reachability Scoring Run
+
+          - **OI release:** ${{ steps.oi.outputs.tag }}
+          - **Rows:** ${ROW_COUNT}
+          - **File size:** ${FILE_SIZE}
+          - **Duration:** ${DURATION}
+          - **Pipeline run:** ${{ steps.run-id.outputs.id }}
+          - **Workflow:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ${SNAP_NOTE}
+          EOF
+          )
+          # Strip leading whitespace from indented heredoc
+          RELEASE_BODY=$(echo "$RELEASE_BODY" | sed 's/^          //')
 
           gh release create "$TAG" \
             --title "Reachability ${TAG}" \
@@ -217,9 +257,8 @@ jobs:
       - name: Dispatch to pike repo
         if: success()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
         run: |
           gh api repos/tldev/pike/dispatches \
             -f event_type=reachability-release \
-            -f "client_payload[release_tag]=${{ steps.release.outputs.tag }}" \
-            || echo "::warning::Failed to dispatch to pike repo (may need cross-repo token)"
+            -f "client_payload[release_tag]=${{ steps.release.outputs.tag }}"
