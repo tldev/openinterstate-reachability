@@ -9,6 +9,9 @@ SCRIPT_NAME="osm-build"
 OSRM_DIR="/mnt/osrm"
 OSRM_PROFILES="${OSRM_PROFILES:-/opt/osrm-profiles}"
 PBF_URL="https://download.geofabrik.de/north-america/us-latest.osm.pbf"
+S3_BUCKET="${S3_BUCKET:-}"
+REGION="${AWS_REGION:-us-east-1}"
+S3_PBF_KEY="us-latest.osm.pbf"
 EBS_VOLUME_ID="${EBS_VOLUME_ID:?EBS_VOLUME_ID must be set}"
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -40,8 +43,14 @@ elif [[ -f "$PBF_FILE" ]]; then
 fi
 
 if [[ ! -f "${MARKER_DIR}/.download-complete" ]]; then
-  log "Downloading US PBF from Geofabrik (~11 GB)..."
-  wget -O "$PBF_FILE" "$PBF_URL"
+  S3_PBF_PATH="s3://${S3_BUCKET}/${S3_PBF_KEY}"
+  if [[ -n "$S3_BUCKET" ]] && aws s3 ls "$S3_PBF_PATH" --region "$REGION" >/dev/null 2>&1; then
+    log "Downloading US PBF from S3 (${S3_PBF_PATH})..."
+    aws s3 cp "$S3_PBF_PATH" "$PBF_FILE" --region "$REGION"
+  else
+    log "Downloading US PBF from Geofabrik (~11 GB)..."
+    wget -O "$PBF_FILE" "$PBF_URL"
+  fi
   touch "${MARKER_DIR}/.download-complete"
   log "Download complete: $(du -h "$PBF_FILE" | cut -f1)"
 fi
