@@ -6,6 +6,9 @@ on:
     paths:
       - "docker/**"
       - "scripts/**"
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
   workflow_dispatch:
 
 env:

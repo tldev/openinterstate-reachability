@@ -1,5 +1,19 @@
 ##
-## Stage 1: Build OSRM from source
+## Stage 1: Build pike-score from source
+##
+FROM rust:1.87-bookworm AS pike-score-builder
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs \
+    && cargo build --release \
+    && rm -rf src
+COPY src/ src/
+RUN cargo build --release --bin pike-score \
+    && strip target/release/pike-score
+
+##
+## Stage 2: Build OSRM from source
 ##
 FROM ubuntu:22.04 AS osrm-builder
 
@@ -32,7 +46,7 @@ RUN git clone --branch v${OSRM_VERSION} --depth 1 \
     && rm -rf /tmp/osrm-backend
 
 ##
-## Stage 2: Runtime image
+## Stage 3: Runtime image
 ##
 FROM ubuntu:22.04
 
@@ -104,16 +118,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── pike-import ──────────────────────────────────────────────────
-# TODO: pike-import is a Rust binary from the pike repo (tldev/pike).
-# Once the build/release strategy is decided, replace this placeholder
-# with one of:
-#   COPY --from=pike-import-builder /app/pike-import /usr/local/bin/pike-import
-#   RUN gh release download --repo tldev/pike -p 'pike-import-linux-amd64' -D /usr/local/bin && chmod +x /usr/local/bin/pike-import
-# For now, scripts that call pike-import will fail with a clear error.
-RUN printf '#!/bin/sh\necho "ERROR: pike-import binary not installed. See Dockerfile TODO." >&2\nexit 1\n' \
-      > /usr/local/bin/pike-import \
-    && chmod +x /usr/local/bin/pike-import
+# ─── pike-score binary ────────────────────────────────────────────
+COPY --from=pike-score-builder /build/target/release/pike-score /usr/local/bin/pike-score
 
 # ─── Scripts ──────────────────────────────────────────────────────
 WORKDIR /app

@@ -1,6 +1,7 @@
 .git
 .github
 infra
+target
 journal.md
 CLAUDE.md
 README.md
