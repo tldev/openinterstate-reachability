@@ -87,20 +87,34 @@ fi
 
 # ─── Discover block device ───────────────────────────────────────
 # Nitro/NVMe instances expose /dev/xvdf as /dev/nvmeNn1 instead.
-# Discovery order: direct path, lsblk diff (fresh attach), NVMe serial match.
+# Discovery order: direct path, lsblk diff (fresh attach), /dev/disk/by-id symlink.
 log "Discovering block device..."
+log "DEBUG: FRESH_ATTACH=${FRESH_ATTACH}"
+log "DEBUG: LSBLK_BEFORE='${LSBLK_BEFORE:-}'"
+log "DEBUG: /dev/fd exists=$(test -d /dev/fd && echo yes || echo no)"
+log "DEBUG: /dev/disk/by-id exists=$(test -d /dev/disk/by-id && echo yes || echo no)"
+if [[ -d /dev/disk/by-id ]]; then
+  log "DEBUG: /dev/disk/by-id contents=$(ls /dev/disk/by-id/ 2>/dev/null || echo EMPTY)"
+fi
 REAL_DEVICE=""
 for i in $(seq 1 15); do
   # Method 1: direct device path (non-NVMe instances)
   if [[ -b "$DEVICE" ]]; then
     REAL_DEVICE="$DEVICE"
+    log "DEBUG: Method 1 found ${DEVICE}"
     break
   fi
 
   # Method 2: lsblk diff (NVMe instances, fresh attachment)
   if $FRESH_ATTACH; then
     LSBLK_AFTER=$(lsblk -dpn -o NAME 2>/dev/null | sort || true)
-    NEW_DEV=$(comm -13 <(echo "${LSBLK_BEFORE:-}") <(echo "$LSBLK_AFTER") | head -1)
+    if [[ $i -le 3 ]]; then
+      log "DEBUG: Method 2 iter ${i}: AFTER='${LSBLK_AFTER}'"
+    fi
+    NEW_DEV=$(comm -13 <(echo "${LSBLK_BEFORE:-}") <(echo "$LSBLK_AFTER") | head -1) || true
+    if [[ $i -le 3 ]]; then
+      log "DEBUG: Method 2 iter ${i}: NEW_DEV='${NEW_DEV}' is_block=$(test -b "${NEW_DEV:-/nonexistent}" && echo yes || echo no)"
+    fi
     if [[ -n "$NEW_DEV" && -b "$NEW_DEV" ]]; then
       REAL_DEVICE="$NEW_DEV"
       break
@@ -109,9 +123,14 @@ for i in $(seq 1 15); do
 
   # Method 3: /dev/disk/by-id symlink (already-attached or fallback)
   VOLID_NODASH="${VOLUME_ID//-/}"
+  if [[ $i -le 3 ]]; then
+    log "DEBUG: Method 3 iter ${i}: looking for /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${VOLID_NODASH}*"
+    log "DEBUG: Method 3 iter ${i}: glob result=$(ls -la /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${VOLID_NODASH}* 2>&1 || echo NO_MATCH)"
+  fi
   for link in /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${VOLID_NODASH}*; do
     if [[ -e "$link" ]]; then
       CANDIDATE=$(readlink -f "$link")
+      log "DEBUG: Method 3 found link=${link} -> ${CANDIDATE}"
       if [[ -b "$CANDIDATE" ]]; then
         REAL_DEVICE="$CANDIDATE"
         break 2
@@ -121,6 +140,8 @@ for i in $(seq 1 15); do
 
   if [[ $i -eq 15 ]]; then
     log "ERROR: Block device not found after 30 seconds"
+    log "DEBUG: Final lsblk -dpn -o NAME: $(lsblk -dpn -o NAME 2>/dev/null || echo FAILED)"
+    log "DEBUG: Final lsblk full:"
     lsblk >&2
     exit 1
   fi
