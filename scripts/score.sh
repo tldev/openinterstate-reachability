@@ -63,11 +63,11 @@ osrm-routed \
   "${OSRM_BASE}.osrm" &
 OSRM_PID=$!
 
-log "Waiting for OSRM to start..."
+log "Waiting for OSRM to start (loading ~60GB dataset, may take 10-15 min)..."
 OSRM_READY=false
-for i in $(seq 1 60); do
+for i in $(seq 1 180); do
   if curl -sf "http://localhost:${OSRM_PORT}/route/v1/driving/-73.9857,40.7484;-73.9857,40.7484" >/dev/null 2>&1; then
-    log "OSRM is ready (attempt ${i})"
+    log "OSRM is ready (attempt ${i}, ~$(( i * 5 ))s)"
     OSRM_READY=true
     break
   fi
@@ -79,7 +79,7 @@ for i in $(seq 1 60); do
 done
 
 if [[ "$OSRM_READY" != "true" ]]; then
-  log "ERROR: OSRM failed to start within 300 seconds" >&2
+  log "ERROR: OSRM failed to start within 900 seconds" >&2
   exit 1
 fi
 
