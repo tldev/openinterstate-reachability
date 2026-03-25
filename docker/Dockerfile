@@ -1,15 +1,15 @@
-FROM ubuntu:22.04
+##
+## Stage 1: Build OSRM from source
+##
+FROM ubuntu:22.04 AS osrm-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV OSRM_VERSION=5.27.1
 
-# ─── System packages ──────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
-    curl \
     git \
-    jq \
     libboost-all-dev \
     libbz2-dev \
     libexpat1-dev \
@@ -19,20 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxml2-dev \
     libzip-dev \
     pkg-config \
-    unzip \
-    wget \
     ca-certificates \
-    gnupg \
-    lsb-release \
-    software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── osmium-tool ──────────────────────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    osmium-tool \
-    && rm -rf /var/lib/apt/lists/*
-
-# ─── OSRM backend ────────────────────────────────────────────────
 RUN git clone --branch v${OSRM_VERSION} --depth 1 \
       https://github.com/Project-OSRM/osrm-backend.git /tmp/osrm-backend \
     && mkdir /tmp/osrm-backend/build \
@@ -41,6 +30,44 @@ RUN git clone --branch v${OSRM_VERSION} --depth 1 \
     && cmake --build . --target install -- -j$(nproc) \
     && cp -r /tmp/osrm-backend/profiles /opt/osrm-profiles \
     && rm -rf /tmp/osrm-backend
+
+##
+## Stage 2: Runtime image
+##
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV OSRM_PROFILES=/opt/osrm-profiles
+
+# ─── OSRM binaries + profiles from builder ────────────────────────
+COPY --from=osrm-builder /usr/local/bin/osrm-* /usr/local/bin/
+COPY --from=osrm-builder /usr/local/lib/libosrm* /usr/local/lib/
+COPY --from=osrm-builder /opt/osrm-profiles /opt/osrm-profiles
+RUN ldconfig
+
+# ─── System packages + osmium-tool ───────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    jq \
+    libbz2-1.0 \
+    libboost-filesystem1.74.0 \
+    libboost-iostreams1.74.0 \
+    libboost-program-options1.74.0 \
+    libboost-thread1.74.0 \
+    libexpat1 \
+    liblua5.4-0 \
+    libstxxl1v5 \
+    libtbb12 \
+    libxml2 \
+    libzip4 \
+    lsb-release \
+    osmium-tool \
+    software-properties-common \
+    unzip \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
 # ─── PostgreSQL 15 + PostGIS 3 ────────────────────────────────────
 RUN sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
@@ -53,7 +80,15 @@ RUN sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-
       postgresql-client-15 \
     && rm -rf /var/lib/apt/lists/*
 
+# Initialize PostgreSQL cluster so scripts can just start the server
+RUN pg_lsclusters | grep -q "15  main" \
+    || pg_createcluster 15 main \
+    && sed -i "s/#listen_addresses = 'localhost'/listen_addresses = 'localhost'/" \
+      /etc/postgresql/15/main/postgresql.conf
+
 # ─── AWS CLI v2 ───────────────────────────────────────────────────
+# TODO: Hardcoded x86_64. For ARM/Graviton builds, detect arch and
+# use the appropriate URL (aarch64 variant).
 RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" \
       -o /tmp/awscli.zip \
     && unzip -q /tmp/awscli.zip -d /tmp \
@@ -76,13 +111,13 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 #   COPY --from=pike-import-builder /app/pike-import /usr/local/bin/pike-import
 #   RUN gh release download --repo tldev/pike -p 'pike-import-linux-amd64' -D /usr/local/bin && chmod +x /usr/local/bin/pike-import
 # For now, scripts that call pike-import will fail with a clear error.
-RUN echo '#!/bin/sh\necho "ERROR: pike-import binary not installed. See Dockerfile TODO." >&2\nexit 1' \
+RUN printf '#!/bin/sh\necho "ERROR: pike-import binary not installed. See Dockerfile TODO." >&2\nexit 1\n' \
       > /usr/local/bin/pike-import \
     && chmod +x /usr/local/bin/pike-import
 
 # ─── Scripts ──────────────────────────────────────────────────────
 WORKDIR /app
 COPY scripts/ /app/scripts/
-RUN chmod +x /app/scripts/*.sh
+RUN chmod +x /app/scripts/*.sh 2>/dev/null || true
 
 ENTRYPOINT ["/bin/bash"]
