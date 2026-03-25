@@ -225,16 +225,20 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Sid: BatchSubmitAndDescribe
+              - Sid: BatchSubmitAndTerminate
                 Effect: Allow
                 Action:
                   - batch:SubmitJob
-                  - batch:DescribeJobs
                   - batch:TerminateJob
                 Resource:
                   - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job-queue/pike-reachability-*"
                   - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job-definition/pike-reachability-*"
                   - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job/*"
+              - Sid: BatchDescribeJobs
+                Effect: Allow
+                Action:
+                  - batch:DescribeJobs
+                Resource: "*"
               - Sid: EBSManagement
                 Effect: Allow
                 Action:
