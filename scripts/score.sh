@@ -173,32 +173,26 @@ PLACE_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM places")
 LINK_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM exit_place_links")
 log "Loaded: ${EXIT_COUNT} exits, ${PLACE_COUNT} places, ${LINK_COUNT} exit-place links"
 
-# ─── Run pike-import score ────────────────────────────────────────
+# ─── Run pike-score ───────────────────────────────────────────────
 mkdir -p "$OUTPUT_DIR"
 
-log "Running pike-import score (16 parallel connections)..."
-pike-import score \
-  --parallel 16 \
+log "Running pike-score (${OSRM_PORT}, parallelism 16)..."
+pike-score score \
+  --osrm-parallelism 16 \
   --osrm-url "http://localhost:${OSRM_PORT}" \
-  --database-url "postgresql://${PG_USER}@localhost/${PG_DB}" \
-  --output-dir "$OUTPUT_DIR"
+  --database-url "postgresql://${PG_USER}@localhost/${PG_DB}"
 log "Scoring complete"
 
-# ─── Verify output ───────────────────────────────────────────────
+# ─── Export results to CSV ─────────────────────────────────────────
+# pike-score writes to the exit_poi_reachability table; export to CSV
+# for the GitHub release artifact.
 REACHABILITY_CSV="${OUTPUT_DIR}/reachability.csv"
-if [[ ! -f "$REACHABILITY_CSV" ]]; then
-  log "ERROR: reachability.csv not found in ${OUTPUT_DIR}" >&2
-  ls -la "$OUTPUT_DIR/" >&2
-  exit 1
-fi
+log "Exporting reachability results to CSV..."
+psql -U "$PG_USER" -d "$PG_DB" -c \
+  "\copy (SELECT exit_id, poi_id, route_distance_m, route_duration_s, reachable, reachability_score FROM exit_poi_reachability ORDER BY exit_id, poi_id) TO '${REACHABILITY_CSV}' WITH (FORMAT csv, HEADER true)"
 
-# Validate CSV schema
-EXPECTED_HEADER="exit_id,poi_id,route_distance_m,route_duration_s,reachable,reachability_score"
-ACTUAL_HEADER=$(head -1 "$REACHABILITY_CSV")
-if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER" ]]; then
-  log "ERROR: Unexpected CSV schema" >&2
-  log "Expected: ${EXPECTED_HEADER}" >&2
-  log "Got:      ${ACTUAL_HEADER}" >&2
+if [[ ! -f "$REACHABILITY_CSV" ]]; then
+  log "ERROR: CSV export failed — reachability.csv not created" >&2
   exit 1
 fi
 
