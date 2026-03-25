@@ -42,7 +42,7 @@ jobs:
           PIPELINE_RUN_ID="${{ github.run_id }}-${GITHUB_RUN_ATTEMPT}"
           echo "id=${PIPELINE_RUN_ID}" >> "$GITHUB_OUTPUT"
           echo "Pipeline run ID: ${PIPELINE_RUN_ID}"
-          echo "start_time=${SECONDS}" >> "$GITHUB_OUTPUT"
+          echo "start_time=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Resolve OI release tag
         id: oi
@@ -211,7 +211,7 @@ jobs:
           TAG="score-$(date -u +%Y%m%d)-${SHORT_SHA}"
           ROW_COUNT=$(tail -n +2 output/reachability.csv | wc -l)
           FILE_SIZE=$(du -h output/reachability.csv | cut -f1)
-          ELAPSED=$(( SECONDS - ${{ steps.run-id.outputs.start_time }} ))
+          ELAPSED=$(( $(date +%s) - ${{ steps.run-id.outputs.start_time }} ))
           DURATION="$(( ELAPSED / 3600 ))h $(( (ELAPSED % 3600) / 60 ))m"
 
           ASSETS=(output/reachability.csv)
