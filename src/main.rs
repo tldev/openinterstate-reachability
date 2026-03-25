@@ -38,8 +38,14 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    eprintln!("[pike-score] starting (pid={})", std::process::id());
     init_tracing();
-    run(Cli::parse()).await
+    let cli = Cli::parse();
+    eprintln!(
+        "[pike-score] parsed args: db={} osrm={} parallelism={} command={:?}",
+        cli.database_url, cli.osrm_url, cli.osrm_parallelism, cli.command
+    );
+    run(cli).await
 }
 
 fn init_tracing() {

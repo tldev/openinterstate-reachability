@@ -9,7 +9,13 @@ RUN mkdir src && echo 'fn main() {}' > src/main.rs \
     && cargo build --release \
     && rm -rf src
 COPY src/ src/
-RUN cargo build --release --bin pike-score \
+# Remove cached dummy binary + fingerprint to force real recompilation.
+# touch alone is insufficient — cargo's fingerprint check can skip rebuild
+# even with updated mtimes. Deleting the fingerprint is the nuclear option.
+RUN rm -rf target/release/.fingerprint/pike-score-* \
+           target/release/deps/pike_score-* \
+           target/release/pike-score \
+    && cargo build --release --bin pike-score \
     && strip target/release/pike-score
 
 ##
