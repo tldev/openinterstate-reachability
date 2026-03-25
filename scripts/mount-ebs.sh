@@ -32,9 +32,14 @@ CURRENT_STATE=$(aws ec2 describe-volumes \
   --query 'Volumes[0].Attachments[?InstanceId==`'"$INSTANCE_ID"'`].State' \
   --output text 2>/dev/null || echo "")
 
+# Snapshot block devices before attachment for NVMe discovery
+LSBLK_BEFORE=""
+
 if [[ "$CURRENT_STATE" == "attached" ]]; then
   log "Volume already attached to this instance"
 else
+  LSBLK_BEFORE=$(lsblk -dpn -o NAME 2>/dev/null | sort || true)
+
   # Wait for volume to be available (may still be detaching from previous job)
   log "Waiting for volume ${VOLUME_ID} to be available..."
   for i in $(seq 1 60); do
@@ -81,22 +86,35 @@ else
 fi
 
 # ─── Discover block device ───────────────────────────────────────
-# Always run device discovery (handles both fresh-attach and already-attached)
-# AWS Nitro instances map xvd* to nvme*; match by volume serial number
+# Nitro/NVMe instances expose /dev/xvdf as /dev/nvmeNn1 instead.
+# Discovery order: direct path, lsblk diff (fresh attach), NVMe serial match.
 log "Discovering block device..."
 REAL_DEVICE=""
 for i in $(seq 1 15); do
+  # Method 1: direct device path (non-NVMe instances)
   if [[ -b "$DEVICE" ]]; then
     REAL_DEVICE="$DEVICE"
     break
   fi
-  # NVMe mapping: serial contains volume ID without dashes
+
+  # Method 2: lsblk diff (NVMe instances, fresh attachment)
+  if [[ -n "$LSBLK_BEFORE" ]]; then
+    LSBLK_AFTER=$(lsblk -dpn -o NAME 2>/dev/null | sort || true)
+    NEW_DEV=$(comm -13 <(echo "$LSBLK_BEFORE") <(echo "$LSBLK_AFTER") | head -1)
+    if [[ -n "$NEW_DEV" && -b "$NEW_DEV" ]]; then
+      REAL_DEVICE="$NEW_DEV"
+      break
+    fi
+  fi
+
+  # Method 3: NVMe serial match (already-attached or fallback)
   NVME_DEV=$(lsblk -o NAME,SERIAL -dpn 2>/dev/null \
     | grep "${VOLUME_ID//-/}" | awk '{print $1}' || true)
   if [[ -n "$NVME_DEV" && -b "$NVME_DEV" ]]; then
     REAL_DEVICE="$NVME_DEV"
     break
   fi
+
   if [[ $i -eq 15 ]]; then
     log "ERROR: Block device not found after 30 seconds"
     lsblk >&2
