@@ -85,63 +85,75 @@ else
   log "Volume attached"
 fi
 
+# ─── Helper: ensure /dev node exists for a block device ─────────
+# Docker containers see block devices in sysfs (/sys/block/) but
+# may lack the /dev node because udev doesn't run in containers.
+ensure_dev_node() {
+  local devpath="$1"
+  if [[ -b "$devpath" ]]; then
+    return 0
+  fi
+  local devname="${devpath##*/}"
+  local sysdev="/sys/block/${devname}/dev"
+  if [[ -f "$sysdev" ]]; then
+    local majmin
+    majmin=$(cat "$sysdev")
+    local maj="${majmin%%:*}"
+    local min="${majmin##*:}"
+    log "Creating device node ${devpath} (${maj}:${min})"
+    mknod "$devpath" b "$maj" "$min"
+    return 0
+  fi
+  return 1
+}
+
 # ─── Discover block device ───────────────────────────────────────
 # Nitro/NVMe instances expose /dev/xvdf as /dev/nvmeNn1 instead.
-# Discovery order: direct path, lsblk diff (fresh attach), /dev/disk/by-id symlink.
+# In Docker containers, /dev nodes may not exist even for attached
+# devices (no udev). We detect via sysfs and create nodes as needed.
 log "Discovering block device..."
-log "DEBUG: FRESH_ATTACH=${FRESH_ATTACH}"
-log "DEBUG: LSBLK_BEFORE='${LSBLK_BEFORE:-}'"
-log "DEBUG: /dev/fd exists=$(test -d /dev/fd && echo yes || echo no)"
-log "DEBUG: /dev/disk/by-id exists=$(test -d /dev/disk/by-id && echo yes || echo no)"
-if [[ -d /dev/disk/by-id ]]; then
-  log "DEBUG: /dev/disk/by-id contents=$(ls /dev/disk/by-id/ 2>/dev/null || echo EMPTY)"
-fi
 REAL_DEVICE=""
 for i in $(seq 1 15); do
   # Method 1: direct device path (non-NVMe instances)
+  ensure_dev_node "$DEVICE" 2>/dev/null || true
   if [[ -b "$DEVICE" ]]; then
     REAL_DEVICE="$DEVICE"
-    log "DEBUG: Method 1 found ${DEVICE}"
     break
   fi
 
   # Method 2: lsblk diff (NVMe instances, fresh attachment)
   if $FRESH_ATTACH; then
     LSBLK_AFTER=$(lsblk -dpn -o NAME 2>/dev/null | sort || true)
-    if [[ $i -le 3 ]]; then
-      log "DEBUG: Method 2 iter ${i}: AFTER='${LSBLK_AFTER}'"
-    fi
     NEW_DEV=$(comm -13 <(echo "${LSBLK_BEFORE:-}") <(echo "$LSBLK_AFTER") | head -1) || true
-    if [[ $i -le 3 ]]; then
-      log "DEBUG: Method 2 iter ${i}: NEW_DEV='${NEW_DEV}' is_block=$(test -b "${NEW_DEV:-/nonexistent}" && echo yes || echo no)"
-    fi
-    if [[ -n "$NEW_DEV" && -b "$NEW_DEV" ]]; then
-      REAL_DEVICE="$NEW_DEV"
-      break
+    if [[ -n "$NEW_DEV" ]]; then
+      ensure_dev_node "$NEW_DEV" 2>/dev/null || true
+      if [[ -b "$NEW_DEV" ]]; then
+        REAL_DEVICE="$NEW_DEV"
+        break
+      fi
     fi
   fi
 
-  # Method 3: /dev/disk/by-id symlink (already-attached or fallback)
-  VOLID_NODASH="${VOLUME_ID//-/}"
-  if [[ $i -le 3 ]]; then
-    log "DEBUG: Method 3 iter ${i}: looking for /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${VOLID_NODASH}*"
-    log "DEBUG: Method 3 iter ${i}: glob result=$(ls -la /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${VOLID_NODASH}* 2>&1 || echo NO_MATCH)"
-  fi
-  for link in /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${VOLID_NODASH}*; do
-    if [[ -e "$link" ]]; then
-      CANDIDATE=$(readlink -f "$link")
-      log "DEBUG: Method 3 found link=${link} -> ${CANDIDATE}"
-      if [[ -b "$CANDIDATE" ]]; then
-        REAL_DEVICE="$CANDIDATE"
-        break 2
+  # Method 3: sysfs scan for NVMe devices (already-attached or fallback)
+  for sysdir in /sys/block/nvme*; do
+    if [[ -f "${sysdir}/dev" ]]; then
+      devname="${sysdir##*/}"
+      devpath="/dev/${devname}"
+      ensure_dev_node "$devpath" 2>/dev/null || true
+      if [[ -b "$devpath" ]]; then
+        # Check size to skip root volume (typically < 100G)
+        size_bytes=$(cat "${sysdir}/size" 2>/dev/null || echo 0)
+        size_gb=$(( size_bytes * 512 / 1073741824 ))
+        if [[ $size_gb -ge 100 ]]; then
+          REAL_DEVICE="$devpath"
+          break 2
+        fi
       fi
     fi
   done
 
   if [[ $i -eq 15 ]]; then
     log "ERROR: Block device not found after 30 seconds"
-    log "DEBUG: Final lsblk -dpn -o NAME: $(lsblk -dpn -o NAME 2>/dev/null || echo FAILED)"
-    log "DEBUG: Final lsblk full:"
     lsblk >&2
     exit 1
   fi
