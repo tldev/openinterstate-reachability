@@ -32,12 +32,12 @@ CURRENT_STATE=$(aws ec2 describe-volumes \
   --query 'Volumes[0].Attachments[?InstanceId==`'"$INSTANCE_ID"'`].State' \
   --output text 2>/dev/null || echo "")
 
-# Snapshot block devices before attachment for NVMe discovery
-LSBLK_BEFORE=""
+FRESH_ATTACH=false
 
 if [[ "$CURRENT_STATE" == "attached" ]]; then
   log "Volume already attached to this instance"
 else
+  FRESH_ATTACH=true
   LSBLK_BEFORE=$(lsblk -dpn -o NAME 2>/dev/null | sort || true)
 
   # Wait for volume to be available (may still be detaching from previous job)
@@ -98,22 +98,26 @@ for i in $(seq 1 15); do
   fi
 
   # Method 2: lsblk diff (NVMe instances, fresh attachment)
-  if [[ -n "$LSBLK_BEFORE" ]]; then
+  if $FRESH_ATTACH; then
     LSBLK_AFTER=$(lsblk -dpn -o NAME 2>/dev/null | sort || true)
-    NEW_DEV=$(comm -13 <(echo "$LSBLK_BEFORE") <(echo "$LSBLK_AFTER") | head -1)
+    NEW_DEV=$(comm -13 <(echo "${LSBLK_BEFORE:-}") <(echo "$LSBLK_AFTER") | head -1)
     if [[ -n "$NEW_DEV" && -b "$NEW_DEV" ]]; then
       REAL_DEVICE="$NEW_DEV"
       break
     fi
   fi
 
-  # Method 3: NVMe serial match (already-attached or fallback)
-  NVME_DEV=$(lsblk -o NAME,SERIAL -dpn 2>/dev/null \
-    | grep "${VOLUME_ID//-/}" | awk '{print $1}' || true)
-  if [[ -n "$NVME_DEV" && -b "$NVME_DEV" ]]; then
-    REAL_DEVICE="$NVME_DEV"
-    break
-  fi
+  # Method 3: /dev/disk/by-id symlink (already-attached or fallback)
+  VOLID_NODASH="${VOLUME_ID//-/}"
+  for link in /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${VOLID_NODASH}*; do
+    if [[ -e "$link" ]]; then
+      CANDIDATE=$(readlink -f "$link")
+      if [[ -b "$CANDIDATE" ]]; then
+        REAL_DEVICE="$CANDIDATE"
+        break 2
+      fi
+    fi
+  done
 
   if [[ $i -eq 15 ]]; then
     log "ERROR: Block device not found after 30 seconds"
