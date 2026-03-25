@@ -38,7 +38,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN git clone --branch v${OSRM_VERSION} --depth 1 \
       https://github.com/Project-OSRM/osrm-backend.git /tmp/osrm-backend \
-    && sed -i 's/-Werror//g' /tmp/osrm-backend/CMakeLists.txt \
+    && find /tmp/osrm-backend -name CMakeLists.txt -o -name '*.cmake' \
+       | xargs sed -i 's/-Werror//g' \
     && mkdir /tmp/osrm-backend/build \
     && cd /tmp/osrm-backend/build \
     && cmake .. -DCMAKE_BUILD_TYPE=Release \
