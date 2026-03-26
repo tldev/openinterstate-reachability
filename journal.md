@@ -42,3 +42,17 @@ Worked through 5 successive blockers in the scoring pipeline, each fix getting f
 6. **PR #39 — pike-score clap arg parsing**: Root cause of "relation exit_place_scores does not exist" error. `pike-score score --database-url ...` silently fails because clap 4 doesn't allow parent args after a subcommand. Fixed by: (a) removing explicit `score` subcommand from score.sh invocation, (b) adding `global = true` to all CLI args. Confirmed with new test that reproduces the exact failure.
 
 EBS volume vol-041f5aa784f19c00e from run 23554122059-1 has been reused across retries. After PR #39 merge + Docker rebuild, pipeline should complete end-to-end.
+
+## 2026-03-25 -- Pipeline Debugging (PRs #40-#42)
+
+Three more fixes after PR #39, all related to pike-score producing zero output:
+
+7. **PR #40 — Docker registry cache**: `cache-from: type=registry` served stale cached layers, preventing source code changes from being compiled. Removed `cache-from`/`cache-to` from docker-build.yml.
+8. **PR #41 — Cargo timestamp caching**: Docker COPY preserves file timestamps from the build context. The Dockerfile's dep-caching trick (dummy main.rs → build deps → rm src → COPY real src → rebuild) broke because the cached binary had a newer timestamp than the real source files. Cargo skipped recompilation. Fixed by adding `touch src/main.rs src/**/*.rs` before `cargo build`. This was the root cause — pike-score had literally never been compiled from real source code in any Docker image.
+9. **PR #42 — Duplicate exit_place_links**: exit_place_links had ~53k duplicate (exit_id, place_id) pairs. When duplicates landed in the same 25k-row UNNEST batch, PostgreSQL raised "ON CONFLICT DO UPDATE cannot affect row a second time." Fixed by: (a) deduplicating exit_place_links in score.sh after CSV load, (b) adding DISTINCT to fetch_pending_pairs query in db.rs.
+
+## 2026-03-26 -- Pipeline Success
+
+Run 23572441119 completed successfully in 21 minutes. 200,615 reachability scores published as release `score-20260326-6c28d57`. Pipeline is fully operational end-to-end: GHA workflow → AWS Batch osm-build → score job (OSRM + PostGIS + pike-score) → CSV export → S3 upload → GitHub release → repository_dispatch to pike.
+
+Total: 42 PRs from first commit to first successful run.
