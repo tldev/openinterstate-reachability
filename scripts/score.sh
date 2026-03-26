@@ -183,10 +183,12 @@ DELETE FROM corridor_exits a USING corridor_exits b
   WHERE a.ctid > b.ctid AND a.exit_id = b.exit_id;
 DELETE FROM places a USING places b
   WHERE a.ctid > b.ctid AND a.place_id = b.place_id;
+DELETE FROM exit_place_links a USING exit_place_links b
+  WHERE a.ctid > b.ctid AND a.exit_id = b.exit_id AND a.place_id = b.place_id;
 
 CREATE UNIQUE INDEX ON corridor_exits (exit_id);
 CREATE UNIQUE INDEX ON places (place_id);
-CREATE INDEX ON exit_place_links (exit_id, place_id);
+CREATE UNIQUE INDEX ON exit_place_links (exit_id, place_id);
 SQL
 
 # Extract lat/lon from geometry_geojson for places (GeoJSON has no lat/lon columns)
