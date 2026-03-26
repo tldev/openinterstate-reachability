@@ -15,7 +15,7 @@ pub(super) async fn fetch_pending_pairs(
     let qrows: Vec<(String, String, f64, f64, f64, f64, f64)> = match target_exit_ids {
         Some(ids) => {
             sqlx::query_as(
-                "SELECT c.exit_id, c.place_id, \
+                "SELECT DISTINCT c.exit_id, c.place_id, \
                         e.lat, e.lon, \
                         p.lat, p.lon, \
                         c.distance_m \
@@ -33,7 +33,7 @@ pub(super) async fn fetch_pending_pairs(
         }
         None => {
             sqlx::query_as(
-                "SELECT c.exit_id, c.place_id, \
+                "SELECT DISTINCT c.exit_id, c.place_id, \
                         e.lat, e.lon, \
                         p.lat, p.lon, \
                         c.distance_m \
