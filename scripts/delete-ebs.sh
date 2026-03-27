@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Delete an EBS volume. Safety check: only deletes volumes
-# tagged with project=pike-reachability.
+# tagged with project=openinterstate-reachability.
 # Usage: delete-ebs.sh <volume-id>
 #
 set -euo pipefail
@@ -31,8 +31,8 @@ VOLUME_INFO=$(aws ec2 describe-volumes \
 PROJECT_TAG=$(echo "$VOLUME_INFO" | jq -r \
   '.Volumes[0].Tags[]? | select(.Key == "project") | .Value // empty')
 
-if [[ "$PROJECT_TAG" != "pike-reachability" ]]; then
-  log "ERROR: Volume ${VOLUME_ID} is not tagged project=pike-reachability (got '${PROJECT_TAG}'). Refusing to delete."
+if [[ "$PROJECT_TAG" != "openinterstate-reachability" ]]; then
+  log "ERROR: Volume ${VOLUME_ID} is not tagged project=openinterstate-reachability (got '${PROJECT_TAG}'). Refusing to delete."
   exit 1
 fi
 

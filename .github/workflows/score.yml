@@ -20,11 +20,11 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  S3_BUCKET: pike-reachability-staging-${{ secrets.AWS_ACCOUNT_ID }}
-  JOB_QUEUE_ONDEMAND: pike-reachability-queue-ondemand
-  JOB_QUEUE_SPOT: pike-reachability-queue-spot
-  JOB_DEF_OSM_BUILD: pike-reachability-osm-build
-  JOB_DEF_SCORE: pike-reachability-score
+  S3_BUCKET: openinterstate-reachability-staging-${{ secrets.AWS_ACCOUNT_ID }}
+  JOB_QUEUE_ONDEMAND: openinterstate-reachability-queue-ondemand
+  JOB_QUEUE_SPOT: openinterstate-reachability-queue-spot
+  JOB_DEF_OSM_BUILD: openinterstate-reachability-osm-build
+  JOB_DEF_SCORE: openinterstate-reachability-score
 
 jobs:
   pipeline:
@@ -90,7 +90,7 @@ jobs:
         run: |
           # Pick the first subnet's AZ from the Batch compute environment
           AZ=$(aws ec2 describe-subnets \
-            --filters "Name=tag:project,Values=pike-reachability" \
+            --filters "Name=tag:project,Values=openinterstate-reachability" \
             --query 'Subnets[0].AvailabilityZone' \
             --output text \
             --region "$AWS_REGION" 2>/dev/null || echo "")
@@ -293,8 +293,8 @@ jobs:
             bash scripts/delete-ebs.sh "$VOLUME_ID" || echo "::warning::EBS cleanup failed for ${VOLUME_ID}"
           fi
 
-      # ─── Dispatch to Pike ─────────────────────────────────────
-      - name: Dispatch to pike repo
+      # ─── Dispatch to downstream consumer ─────────────────────
+      - name: Dispatch to downstream app repo
         if: success()
         env:
           GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}

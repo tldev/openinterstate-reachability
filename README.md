@@ -1,6 +1,6 @@
-# pike-reachability
+# openinterstate-reachability
 
-Automated reachability scoring pipeline for Pike. Computes driving distances and times between highway exits and nearby POIs using OSRM routing.
+Automated reachability scoring pipeline for OpenInterstate. Computes driving distances and times between highway exits and nearby POIs using OSRM routing.
 
 ## How it works
 
@@ -13,7 +13,7 @@ Automated reachability scoring pipeline for Pike. Computes driving distances and
 
 - **Compute:** AWS Batch (ephemeral EC2 instances, no persistent infra)
 - **Orchestration:** GitHub Actions
-- **Output:** Reachability CSV (~28 MB) consumed by Pike's build-pack workflow
+- **Output:** Reachability CSV (~28 MB) consumed by downstream build-pack workflow
 
 ## Cost
 

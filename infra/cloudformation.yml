@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Pike Reachability pipeline infrastructure.
+  OpenInterstate Reachability pipeline infrastructure.
   Batch compute environments, job definitions, S3 staging bucket,
   IAM roles (Batch + GHA OIDC), and CloudWatch billing alarm.
   Must be deployed in us-east-1 (required for AWS/Billing metrics).
@@ -32,7 +32,7 @@ Parameters:
 
   GitHubRepo:
     Type: String
-    Default: pike-reachability
+    Default: openinterstate-reachability
     Description: GitHub repository name for OIDC trust policy
 
   CreateOIDCProvider:
@@ -83,7 +83,7 @@ Resources:
   BatchSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Pike Reachability Batch - outbound only
+      GroupDescription: OpenInterstate Reachability Batch - outbound only
       VpcId: !Ref VpcId
       SecurityGroupEgress:
         - IpProtocol: "-1"
@@ -91,7 +91,7 @@ Resources:
           Description: Allow all outbound
       Tags:
         - Key: project
-          Value: pike-reachability
+          Value: openinterstate-reachability
 
   # ─── S3 Staging Bucket ───────────────────────────────────────────
   StagingBucket:
@@ -99,7 +99,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      BucketName: !Sub "pike-reachability-staging-${AWS::AccountId}"
+      BucketName: !Sub "openinterstate-reachability-staging-${AWS::AccountId}"
       LifecycleConfiguration:
         Rules:
           - Id: AutoDeleteAfter7Days
@@ -112,32 +112,32 @@ Resources:
         RestrictPublicBuckets: true
       Tags:
         - Key: project
-          Value: pike-reachability
+          Value: openinterstate-reachability
 
   # ─── CloudWatch Log Groups ──────────────────────────────────────
   OsmBuildLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /aws/batch/pike-reachability-osm-build
+      LogGroupName: /aws/batch/openinterstate-reachability-osm-build
       RetentionInDays: 14
       Tags:
         - Key: project
-          Value: pike-reachability
+          Value: openinterstate-reachability
 
   ScoreLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /aws/batch/pike-reachability-score
+      LogGroupName: /aws/batch/openinterstate-reachability-score
       RetentionInDays: 14
       Tags:
         - Key: project
-          Value: pike-reachability
+          Value: openinterstate-reachability
 
   # ─── IAM: Batch Job Role ─────────────────────────────────────────
   BatchJobRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: pike-reachability-batch-job-role
+      RoleName: openinterstate-reachability-batch-job-role
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -146,7 +146,7 @@ Resources:
               Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: pike-reachability-batch-job-policy
+        - PolicyName: openinterstate-reachability-batch-job-policy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -179,7 +179,7 @@ Resources:
                   - !Sub "arn:aws:ec2:us-east-1:${AWS::AccountId}:instance/*"
                 Condition:
                   StringEquals:
-                    "ec2:ResourceTag/project": pike-reachability
+                    "ec2:ResourceTag/project": openinterstate-reachability
               - Sid: EC2DescribeForEBS
                 Effect: Allow
                 Action:
@@ -190,7 +190,7 @@ Resources:
   BatchExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: pike-reachability-batch-execution-role
+      RoleName: openinterstate-reachability-batch-execution-role
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -205,7 +205,7 @@ Resources:
   GHAOIDCRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: pike-reachability-gha-role
+      RoleName: openinterstate-reachability-gha-role
       MaxSessionDuration: 43200  # 12 hours — polling Batch jobs can take 8+ hours
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -222,7 +222,7 @@ Resources:
                   - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/main"
                   - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/tags/*"
       Policies:
-        - PolicyName: pike-reachability-gha-policy
+        - PolicyName: openinterstate-reachability-gha-policy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -232,8 +232,8 @@ Resources:
                   - batch:SubmitJob
                   - batch:TerminateJob
                 Resource:
-                  - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job-queue/pike-reachability-*"
-                  - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job-definition/pike-reachability-*"
+                  - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job-queue/openinterstate-reachability-*"
+                  - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job-definition/openinterstate-reachability-*"
                   - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:job/*"
               - Sid: BatchDescribeJobs
                 Effect: Allow
@@ -252,7 +252,7 @@ Resources:
                 Resource: !Sub "arn:aws:ec2:us-east-1:${AWS::AccountId}:volume/*"
                 Condition:
                   StringEquals:
-                    "aws:ResourceTag/project": pike-reachability
+                    "aws:ResourceTag/project": openinterstate-reachability
               - Sid: EBSCreateVolume
                 Effect: Allow
                 Action:
@@ -261,7 +261,7 @@ Resources:
                 Resource: !Sub "arn:aws:ec2:us-east-1:${AWS::AccountId}:volume/*"
                 Condition:
                   StringEquals:
-                    "aws:RequestTag/project": pike-reachability
+                    "aws:RequestTag/project": openinterstate-reachability
               - Sid: EC2Describe
                 Effect: Allow
                 Action:
@@ -284,7 +284,7 @@ Resources:
   BatchLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: pike-reachability-batch
+      LaunchTemplateName: openinterstate-reachability-batch
       LaunchTemplateData:
         MetadataOptions:
           HttpTokens: required
@@ -296,7 +296,7 @@ Resources:
   OnDemandComputeEnvironment:
     Type: AWS::Batch::ComputeEnvironment
     Properties:
-      ComputeEnvironmentName: pike-reachability-compute-ondemand-v2
+      ComputeEnvironmentName: openinterstate-reachability-compute-ondemand-v2
       Type: MANAGED
       State: ENABLED
       ComputeResources:
@@ -314,13 +314,13 @@ Resources:
           LaunchTemplateId: !Ref BatchLaunchTemplate
           Version: $Latest
         Tags:
-          project: pike-reachability
+          project: openinterstate-reachability
 
   # SPOT for scoring (resumable via upsert + snap cache)
   SpotComputeEnvironment:
     Type: AWS::Batch::ComputeEnvironment
     Properties:
-      ComputeEnvironmentName: pike-reachability-compute-spot
+      ComputeEnvironmentName: openinterstate-reachability-compute-spot
       Type: MANAGED
       State: ENABLED
       ComputeResources:
@@ -340,12 +340,12 @@ Resources:
           LaunchTemplateId: !Ref BatchLaunchTemplate
           Version: $Latest
         Tags:
-          project: pike-reachability
+          project: openinterstate-reachability
 
   SpotFleetRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: pike-reachability-spot-fleet-role
+      RoleName: openinterstate-reachability-spot-fleet-role
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -359,7 +359,7 @@ Resources:
   BatchInstanceRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: pike-reachability-batch-instance-role
+      RoleName: openinterstate-reachability-batch-instance-role
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -373,7 +373,7 @@ Resources:
   BatchInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: pike-reachability-batch-instance-profile
+      InstanceProfileName: openinterstate-reachability-batch-instance-profile
       Roles:
         - !Ref BatchInstanceRole
 
@@ -381,7 +381,7 @@ Resources:
   OnDemandJobQueue:
     Type: AWS::Batch::JobQueue
     Properties:
-      JobQueueName: pike-reachability-queue-ondemand
+      JobQueueName: openinterstate-reachability-queue-ondemand
       State: ENABLED
       Priority: 1
       ComputeEnvironmentOrder:
@@ -391,7 +391,7 @@ Resources:
   SpotJobQueue:
     Type: AWS::Batch::JobQueue
     Properties:
-      JobQueueName: pike-reachability-queue-spot
+      JobQueueName: openinterstate-reachability-queue-spot
       State: ENABLED
       Priority: 1
       ComputeEnvironmentOrder:
@@ -402,7 +402,7 @@ Resources:
   OsmBuildJobDefinition:
     Type: AWS::Batch::JobDefinition
     Properties:
-      JobDefinitionName: pike-reachability-osm-build
+      JobDefinitionName: openinterstate-reachability-osm-build
       Type: container
       ContainerProperties:
         Image: !Sub "ghcr.io/${GitHubOrg}/${GitHubRepo}:latest"
@@ -431,7 +431,7 @@ Resources:
   ScoreJobDefinition:
     Type: AWS::Batch::JobDefinition
     Properties:
-      JobDefinitionName: pike-reachability-score
+      JobDefinitionName: openinterstate-reachability-score
       Type: container
       ContainerProperties:
         Image: !Sub "ghcr.io/${GitHubOrg}/${GitHubRepo}:latest"
@@ -460,7 +460,7 @@ Resources:
   BillingAlarmTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: pike-reachability-billing-alarm
+      TopicName: openinterstate-reachability-billing-alarm
       Subscription:
         - Protocol: email
           Endpoint: !Ref AlarmEmail
@@ -468,10 +468,10 @@ Resources:
   BillingAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: pike-reachability-cost-alarm
+      AlarmName: openinterstate-reachability-cost-alarm
       AlarmDescription: >
         Alert when estimated monthly charges exceed $50
-        for pike-reachability resources.
+        for openinterstate-reachability resources.
       Namespace: AWS/Billing
       MetricName: EstimatedCharges
       Statistic: Maximum

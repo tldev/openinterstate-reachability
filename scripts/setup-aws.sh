@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploy the pike-reachability CloudFormation stack.
+# Deploy the openinterstate-reachability CloudFormation stack.
 # One-time setup script. Prints created resource ARNs on completion.
 #
 # Usage: setup-aws.sh --email <alarm-email> --vpc <vpc-id> --subnets <subnet-id-1>,<subnet-id-2>
@@ -8,7 +8,7 @@
 #
 set -euo pipefail
 
-STACK_NAME="pike-reachability"
+STACK_NAME="openinterstate-reachability"
 REGION="${AWS_REGION:-us-east-1}"
 TEMPLATE_FILE="$(cd "$(dirname "$0")/.." && pwd)/infra/cloudformation.yml"
 CREATE_OIDC="true"
@@ -95,7 +95,7 @@ aws cloudformation deploy \
     "CreateOIDCProvider=${CREATE_OIDC}" \
   --capabilities CAPABILITY_NAMED_IAM \
   --region "$REGION" \
-  --tags project=pike-reachability
+  --tags project=openinterstate-reachability
 
 log "Stack deployment complete"
 
@@ -117,7 +117,7 @@ echo " Next Steps"
 echo "═══════════════════════════════════════════════════════"
 echo "1. Copy the GHAOIDCRoleArn value"
 echo "2. Add it as a secret named AWS_ROLE_ARN in the GitHub repo:"
-echo "   gh secret set AWS_ROLE_ARN --repo tldev/pike-reachability"
+echo "   gh secret set AWS_ROLE_ARN --repo tldev/openinterstate-reachability"
 echo "3. Confirm the SNS subscription email"
 echo "4. Push to main to trigger the docker-build workflow"
 echo ""

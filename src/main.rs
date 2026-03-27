@@ -5,7 +5,7 @@ use sqlx::PgPool;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "pike-score",
+    name = "oi-score",
     about = "Score exit/place reachability against an OSRM dataset"
 )]
 struct Cli {
@@ -38,11 +38,11 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    eprintln!("[pike-score] starting (pid={})", std::process::id());
+    eprintln!("[oi-score] starting (pid={})", std::process::id());
     init_tracing();
     let cli = Cli::parse();
     eprintln!(
-        "[pike-score] parsed args: db={} osrm={} parallelism={} command={:?}",
+        "[oi-score] parsed args: db={} osrm={} parallelism={} command={:?}",
         cli.database_url, cli.osrm_url, cli.osrm_parallelism, cli.command
     );
     run(cli).await
@@ -52,7 +52,7 @@ fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "pike_score=info".into()),
+                .unwrap_or_else(|_| "oi_score=info".into()),
         )
         .init();
 }
@@ -98,25 +98,25 @@ mod tests {
 
     #[test]
     fn defaults_to_score_command() {
-        let cli = Cli::try_parse_from(["pike-score"]).expect("parse default");
+        let cli = Cli::try_parse_from(["oi-score"]).expect("parse default");
         assert!(matches!(cli.command.unwrap_or(Command::Score), Command::Score));
     }
 
     #[test]
     fn accepts_explicit_score_subcommand() {
-        let cli = Cli::try_parse_from(["pike-score", "score"]).expect("parse score");
+        let cli = Cli::try_parse_from(["oi-score", "score"]).expect("parse score");
         assert!(matches!(cli.command.unwrap_or(Command::Score), Command::Score));
     }
 
     #[test]
     fn accepts_flags_after_score_subcommand() {
-        // This is how score.sh invokes pike-score
+        // This is how score.sh invokes oi-score
         let result = Cli::try_parse_from([
-            "pike-score",
+            "oi-score",
             "score",
             "--osrm-parallelism", "16",
             "--osrm-url", "http://localhost:5000",
-            "--database-url", "postgresql://pike@localhost/pike_scoring",
+            "--database-url", "postgresql://oi@localhost/oi_scoring",
         ]);
         assert!(result.is_ok(), "score.sh invocation should parse: {:?}", result.err());
     }
@@ -125,13 +125,13 @@ mod tests {
     fn accepts_flags_before_score_subcommand() {
         // Alternative invocation with flags before subcommand
         let cli = Cli::try_parse_from([
-            "pike-score",
+            "oi-score",
             "--osrm-parallelism", "16",
             "--osrm-url", "http://localhost:5000",
-            "--database-url", "postgresql://pike@localhost/pike_scoring",
+            "--database-url", "postgresql://oi@localhost/oi_scoring",
             "score",
         ]).expect("flags before subcommand should parse");
-        assert_eq!(cli.database_url, "postgresql://pike@localhost/pike_scoring");
+        assert_eq!(cli.database_url, "postgresql://oi@localhost/oi_scoring");
         assert_eq!(cli.osrm_url, "http://localhost:5000");
         assert_eq!(cli.osrm_parallelism, 16);
     }
@@ -140,12 +140,12 @@ mod tests {
     fn accepts_flags_without_subcommand() {
         // Omit subcommand entirely — defaults to Score
         let cli = Cli::try_parse_from([
-            "pike-score",
+            "oi-score",
             "--osrm-parallelism", "16",
             "--osrm-url", "http://localhost:5000",
-            "--database-url", "postgresql://pike@localhost/pike_scoring",
+            "--database-url", "postgresql://oi@localhost/oi_scoring",
         ]).expect("flags without subcommand should parse");
-        assert_eq!(cli.database_url, "postgresql://pike@localhost/pike_scoring");
+        assert_eq!(cli.database_url, "postgresql://oi@localhost/oi_scoring");
         assert!(cli.command.is_none());
     }
 }

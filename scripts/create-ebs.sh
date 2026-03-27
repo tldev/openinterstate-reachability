@@ -23,8 +23,8 @@ VOLUME_ID=$(aws ec2 create-volume \
   --tag-specifications "ResourceType=volume,Tags=[
     {Key=pipeline-run,Value=${PIPELINE_RUN_ID}},
     {Key=ttl,Value=24h},
-    {Key=project,Value=pike-reachability},
-    {Key=Name,Value=pike-reachability-${PIPELINE_RUN_ID}}
+    {Key=project,Value=openinterstate-reachability},
+    {Key=Name,Value=openinterstate-reachability-${PIPELINE_RUN_ID}}
   ]" \
   --region "$REGION" \
   --output text \
