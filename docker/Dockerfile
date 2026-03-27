@@ -1,7 +1,7 @@
 ##
-## Stage 1: Build pike-score from source
+## Stage 1: Build oi-score from source
 ##
-FROM rust:1.88-bookworm AS pike-score-builder
+FROM rust:1.88-bookworm AS oi-score-builder
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
@@ -12,11 +12,11 @@ COPY src/ src/
 # Remove cached dummy binary + fingerprint to force real recompilation.
 # touch alone is insufficient — cargo's fingerprint check can skip rebuild
 # even with updated mtimes. Deleting the fingerprint is the nuclear option.
-RUN rm -rf target/release/.fingerprint/pike-score-* \
-           target/release/deps/pike_score-* \
-           target/release/pike-score \
-    && cargo build --release --bin pike-score \
-    && strip target/release/pike-score
+RUN rm -rf target/release/.fingerprint/oi-score-* \
+           target/release/deps/oi_score-* \
+           target/release/oi-score \
+    && cargo build --release --bin oi-score \
+    && strip target/release/oi-score
 
 ##
 ## Stage 2: Build OSRM from source
@@ -130,8 +130,8 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── pike-score binary ────────────────────────────────────────────
-COPY --from=pike-score-builder /build/target/release/pike-score /usr/local/bin/pike-score
+# ─── oi-score binary ────────────────────────────────────────────
+COPY --from=oi-score-builder /build/target/release/oi-score /usr/local/bin/oi-score
 
 # ─── Scripts ──────────────────────────────────────────────────────
 WORKDIR /app

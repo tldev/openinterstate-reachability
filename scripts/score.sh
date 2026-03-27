@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Run reachability scoring: start OSRM + PostgreSQL, fetch OI release,
-# load seed data, run pike-score, export CSV, upload to S3.
+# load seed data, run oi-score, export CSV, upload to S3.
 # Attaches EBS volume (OSRM data from osm-build), detaches on exit.
 #
 set -euo pipefail
@@ -13,8 +13,8 @@ S3_BUCKET="${S3_BUCKET:?S3_BUCKET must be set}"
 EBS_VOLUME_ID="${EBS_VOLUME_ID:?EBS_VOLUME_ID must be set}"
 OI_RELEASE_TAG="${OI_RELEASE_TAG:-}"
 OSRM_PORT="${OSRM_PORT:-5000}"
-PG_DB="pike_scoring"
-PG_USER="pike"
+PG_DB="oi_scoring"
+PG_USER="oi"
 OUTPUT_DIR="/tmp/reachability-output"
 REGION="${AWS_REGION:-us-east-1}"
 PG_VERSION=$(pg_lsclusters -h 2>/dev/null | awk '{print $1}' | head -1)
@@ -208,18 +208,18 @@ PLACE_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM places")
 LINK_COUNT=$(psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM exit_place_links")
 log "Loaded: ${EXIT_COUNT} exits, ${PLACE_COUNT} places, ${LINK_COUNT} exit-place links"
 
-# ─── Run pike-score ───────────────────────────────────────────────
+# ─── Run oi-score ───────────────────────────────────────────────
 mkdir -p "$OUTPUT_DIR"
 
-log "Running pike-score (${OSRM_PORT}, parallelism 16)..."
-pike-score \
+log "Running oi-score (${OSRM_PORT}, parallelism 16)..."
+oi-score \
   --osrm-parallelism 16 \
   --osrm-url "http://localhost:${OSRM_PORT}" \
   --database-url "postgresql://${PG_USER}@localhost/${PG_DB}"
 log "Scoring complete"
 
 # ─── Export results to CSV ─────────────────────────────────────────
-# pike-score writes to the exit_place_scores table; export to CSV
+# oi-score writes to the exit_place_scores table; export to CSV
 # for the GitHub release artifact.
 REACHABILITY_CSV="${OUTPUT_DIR}/reachability.csv"
 log "Exporting reachability results to CSV..."
