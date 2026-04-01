@@ -49,7 +49,6 @@ JOB_ID=$(aws batch submit-job \
   --job-definition "$JOB_DEFINITION" \
   --job-queue "$JOB_QUEUE" \
   --container-overrides "{\"environment\": ${ENV_OVERRIDES}}" \
-  --retry-strategy '{"attempts": 3}' \
   --region "$REGION" \
   --output text \
   --query 'jobId')

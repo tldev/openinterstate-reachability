@@ -125,6 +125,52 @@ jobs:
             echo "Using newly created EBS volume: ${{ steps.ebs-create.outputs.volume_id }}"
           fi
 
+      # ─── Pin Batch compute to EBS volume's AZ ─────────────────
+      # Batch can launch instances in any subnet/AZ in the compute
+      # environment. Pin to the EBS volume's AZ so attach succeeds.
+      - name: Pin compute environments to EBS AZ
+        id: az-pin
+        run: |
+          VOLUME_ID="${{ steps.ebs.outputs.volume_id }}"
+          TARGET_AZ=$(aws ec2 describe-volumes \
+            --volume-ids "$VOLUME_ID" \
+            --region "$AWS_REGION" \
+            --query 'Volumes[0].AvailabilityZone' \
+            --output text)
+          echo "EBS volume ${VOLUME_ID} is in ${TARGET_AZ}"
+
+          # Find the subnet in the target AZ from the on-demand compute environment
+          ALL_SUBNETS=$(aws batch describe-compute-environments \
+            --compute-environments openinterstate-reachability-compute-ondemand-v2 \
+            --region "$AWS_REGION" \
+            --query 'computeEnvironments[0].computeResources.subnets' \
+            --output json)
+          echo "original_subnets=${ALL_SUBNETS}" >> "$GITHUB_OUTPUT"
+
+          TARGET_SUBNET=$(aws ec2 describe-subnets \
+            --subnet-ids $(echo "$ALL_SUBNETS" | jq -r '.[]') \
+            --filters "Name=availability-zone,Values=${TARGET_AZ}" \
+            --region "$AWS_REGION" \
+            --query 'Subnets[0].SubnetId' \
+            --output text)
+
+          if [[ -z "$TARGET_SUBNET" || "$TARGET_SUBNET" == "None" ]]; then
+            echo "::error::No subnet found in ${TARGET_AZ} for compute environment"
+            exit 1
+          fi
+          echo "Pinning compute environments to subnet ${TARGET_SUBNET} (${TARGET_AZ})"
+
+          for CE in openinterstate-reachability-compute-ondemand-v2 openinterstate-reachability-compute-spot-v2; do
+            aws batch update-compute-environment \
+              --compute-environment "$CE" \
+              --compute-resources "subnets=${TARGET_SUBNET}" \
+              --region "$AWS_REGION" || true
+          done
+
+          # Wait for compute environments to stabilize
+          echo "Waiting for compute environments to update..."
+          sleep 15
+
       # ─── osm-build Job ─────────────────────────────────────────
       - name: Submit osm-build Batch job
         if: ${{ !inputs.ebs_volume_id }}
@@ -306,6 +352,20 @@ jobs:
           echo "  EBS VOLUME PRESERVED: ${VOLUME_ID}"
           echo "  Re-run with ebs_volume_id to skip osm-build"
           echo "=============================================="
+
+      # ─── Restore compute environment subnets ─────────────────
+      - name: Restore compute environment subnets
+        if: ${{ always() && steps.az-pin.outputs.original_subnets }}
+        run: |
+          SUBNETS='${{ steps.az-pin.outputs.original_subnets }}'
+          SUBNET_LIST=$(echo "$SUBNETS" | jq -r 'join(",")')
+          echo "Restoring compute environment subnets: ${SUBNET_LIST}"
+          for CE in openinterstate-reachability-compute-ondemand-v2 openinterstate-reachability-compute-spot-v2; do
+            aws batch update-compute-environment \
+              --compute-environment "$CE" \
+              --compute-resources "subnets=${SUBNET_LIST}" \
+              --region "$AWS_REGION" || true
+          done
 
       # ─── Dispatch to downstream consumer ─────────────────────
       - name: Dispatch to downstream app repo
