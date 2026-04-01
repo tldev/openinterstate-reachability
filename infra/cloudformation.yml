@@ -239,7 +239,14 @@ Resources:
                 Effect: Allow
                 Action:
                   - batch:DescribeJobs
+                  - batch:DescribeComputeEnvironments
                 Resource: "*"
+              - Sid: BatchUpdateComputeEnvironment
+                Effect: Allow
+                Action:
+                  - batch:UpdateComputeEnvironment
+                Resource:
+                  - !Sub "arn:aws:batch:us-east-1:${AWS::AccountId}:compute-environment/openinterstate-reachability-*"
               - Sid: EBSManagement
                 Effect: Allow
                 Action:
