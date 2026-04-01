@@ -284,14 +284,28 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Created release: ${TAG}"
 
-      # ─── Delete EBS Volume ─────────────────────────────────────
+      # ─── EBS Volume Cleanup ────────────────────────────────────
+      # On success: delete the volume (it's no longer needed).
+      # On failure: preserve the volume so the next run can reuse it
+      # via the ebs_volume_id input, skipping the ~6h osm-build.
       - name: Delete EBS volume
-        if: ${{ always() && !inputs.ebs_volume_id }}
+        if: ${{ success() && !inputs.ebs_volume_id }}
         run: |
           VOLUME_ID="${{ steps.ebs-create.outputs.volume_id }}"
           if [[ -n "$VOLUME_ID" ]]; then
             bash scripts/delete-ebs.sh "$VOLUME_ID" || echo "::warning::EBS cleanup failed for ${VOLUME_ID}"
           fi
+
+      - name: Preserve EBS volume on failure
+        if: ${{ failure() && !inputs.ebs_volume_id && steps.ebs-create.outputs.volume_id }}
+        run: |
+          VOLUME_ID="${{ steps.ebs-create.outputs.volume_id }}"
+          echo "::warning::Pipeline failed — EBS volume preserved: ${VOLUME_ID}"
+          echo ""
+          echo "=============================================="
+          echo "  EBS VOLUME PRESERVED: ${VOLUME_ID}"
+          echo "  Re-run with ebs_volume_id to skip osm-build"
+          echo "=============================================="
 
       # ─── Dispatch to downstream consumer ─────────────────────
       - name: Dispatch to downstream app repo
