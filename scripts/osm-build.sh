@@ -69,11 +69,13 @@ else
     n/shop=gas \
     n/cuisine \
     n/highway=rest_area \
+    n/leisure=park,dog_park \
     w/amenity=fuel,restaurant,fast_food,cafe,charging_station \
     w/tourism=hotel,motel \
     w/shop=gas \
     w/cuisine \
     w/highway=rest_area \
+    w/leisure=park,dog_park \
     -o "$FILTERED_FILE" \
     --overwrite
   touch "${MARKER_DIR}/.filter-complete"
