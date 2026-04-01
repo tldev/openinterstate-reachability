@@ -144,7 +144,7 @@ jobs:
             --compute-environments openinterstate-reachability-compute-ondemand-v2 \
             --region "$AWS_REGION" \
             --query 'computeEnvironments[0].computeResources.subnets' \
-            --output json)
+            --output json | jq -c '.')
           echo "original_subnets=${ALL_SUBNETS}" >> "$GITHUB_OUTPUT"
 
           TARGET_SUBNET=$(aws ec2 describe-subnets \
@@ -160,11 +160,11 @@ jobs:
           fi
           echo "Pinning compute environments to subnet ${TARGET_SUBNET} (${TARGET_AZ})"
 
-          for CE in openinterstate-reachability-compute-ondemand-v2 openinterstate-reachability-compute-spot-v2; do
+          for CE in openinterstate-reachability-compute-ondemand-v2 openinterstate-reachability-compute-spot; do
             aws batch update-compute-environment \
               --compute-environment "$CE" \
               --compute-resources "subnets=${TARGET_SUBNET}" \
-              --region "$AWS_REGION" || true
+              --region "$AWS_REGION"
           done
 
           # Wait for compute environments to stabilize
@@ -360,7 +360,7 @@ jobs:
           SUBNETS='${{ steps.az-pin.outputs.original_subnets }}'
           SUBNET_LIST=$(echo "$SUBNETS" | jq -r 'join(",")')
           echo "Restoring compute environment subnets: ${SUBNET_LIST}"
-          for CE in openinterstate-reachability-compute-ondemand-v2 openinterstate-reachability-compute-spot-v2; do
+          for CE in openinterstate-reachability-compute-ondemand-v2 openinterstate-reachability-compute-spot; do
             aws batch update-compute-environment \
               --compute-environment "$CE" \
               --compute-resources "subnets=${SUBNET_LIST}" \
