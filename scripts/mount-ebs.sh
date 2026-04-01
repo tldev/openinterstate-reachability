@@ -17,13 +17,27 @@ REGION="${AWS_REGION:-us-east-1}"
 
 log() { echo "[mount-ebs][$(date -u +%FT%TZ)] $*" >&2; }
 
-# ─── Get instance ID via IMDSv2 ──────────────────────────────────
+# ─── Get instance ID and AZ via IMDSv2 ──────────────────────────
 log "Discovering instance ID via IMDSv2..."
 TOKEN=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" \
   -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
 INSTANCE_ID=$(curl -sf "http://169.254.169.254/latest/meta-data/instance-id" \
   -H "X-aws-ec2-metadata-token: $TOKEN")
-log "Running on instance ${INSTANCE_ID}"
+INSTANCE_AZ=$(curl -sf "http://169.254.169.254/latest/meta-data/placement/availability-zone" \
+  -H "X-aws-ec2-metadata-token: $TOKEN")
+log "Running on instance ${INSTANCE_ID} in ${INSTANCE_AZ}"
+
+# ─── Verify AZ match before attempting attach ────────────────────
+VOLUME_AZ=$(aws ec2 describe-volumes \
+  --volume-ids "$VOLUME_ID" \
+  --region "$REGION" \
+  --query 'Volumes[0].AvailabilityZone' \
+  --output text)
+if [[ "$VOLUME_AZ" != "$INSTANCE_AZ" ]]; then
+  log "ERROR: AZ mismatch — volume is in ${VOLUME_AZ} but instance is in ${INSTANCE_AZ}"
+  log "Exiting so Batch can retry on an instance in the correct AZ"
+  exit 1
+fi
 
 # ─── Attach volume if not already attached to this instance ──────
 CURRENT_STATE=$(aws ec2 describe-volumes \
