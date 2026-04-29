@@ -60,3 +60,19 @@ Total: 42 PRs from first commit to first successful run.
 ## 2026-03-27 -- Rebrand to openinterstate-reachability
 
 Renamed repo to tldev/openinterstate-reachability. Scrubbed all references to the old name across the codebase: binary renamed to oi-score, AWS resources renamed, database user/name updated, CLAUDE.md/README/journal rewritten. CloudFormation stack will need redeployment with new resource names. One external repo reference remains in score.yml dispatch target (cannot be renamed from this repo).
+
+## 2026-04-01 -- Park/DogPark Categories + AZ Pinning
+
+OI shipped park and dogPark POI categories. Ran a fresh scoring pipeline to include them.
+
+**osmium filter update (b7ee45a):** Added `n/leisure=park,dog_park` and `w/leisure=park,dog_park` to osm-build.sh osmium tags-filter. This was the only change needed in this repo — POI classification and name-filter exceptions live upstream in OI's derive.sql.
+
+**AZ mismatch fix (86d29c0, 7f5e047, c159d20):** After the CloudFormation rebrand redeploy, the compute environment had subnets in us-east-1a and us-east-1b. EBS volumes are AZ-pinned but Batch instances can land in either AZ. Retries didn't help — Batch reuses the same warm instance. Fix: workflow now pins compute environments to the EBS volume's AZ subnet before submitting jobs, restores original subnets in always-run cleanup.
+
+**Supporting changes:**
+- EBS volume preserved on failure (c877e46) — delete only on success(), print volume ID on failure for ebs_volume_id reuse
+- Added batch:DescribeComputeEnvironments + batch:UpdateComputeEnvironment IAM permissions (f4a8bcf)
+- AZ pre-check in mount-ebs.sh via IMDSv2 (86d29c0)
+- Fixed spot CE name (compute-spot, not compute-spot-v2) and multi-line JSON in GITHUB_OUTPUT (c159d20)
+
+**Result:** Run 23853449693 succeeded in 1h 57m. Release `score-20260401-c159d20`: 313,472 scores (up from 200,615 — parks added ~113k new exit-POI pairs). Downstream dispatch sent to pike.
