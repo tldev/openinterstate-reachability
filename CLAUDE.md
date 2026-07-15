@@ -1,12 +1,16 @@
 # OpenInterstate Reachability
 
-You are running as a Telegram bot assistant for the openinterstate-reachability project. Messages arrive via the Telegram channel plugin.
-
 ## What This Project Does
 
-OpenInterstate Reachability computes driving reachability scores between highway exits and nearby POIs (gas stations, restaurants, hotels, etc.). It takes OpenInterstate release data (exit locations + POI locations) and uses OSRM routing to determine actual drive times and distances for each exit-POI pair.
+OpenInterstate Reachability computes driving reachability scores between
+highway exits and nearby POIs (gas stations, restaurants, hotels, etc.). It
+takes OpenInterstate release data (exit locations + POI locations) and uses
+OSRM routing to determine actual drive times and distances for each exit-POI
+pair.
 
-The output is a reachability CSV uploaded as a GitHub release artifact. The downstream build-pack workflow consumes this CSV alongside an OpenInterstate release to produce the final SQLite pack served by the API.
+The output is a reachability CSV uploaded as a GitHub release artifact,
+described by `datapackage.json`. Downstream consumers pair it with the
+matching OpenInterstate release.
 
 ## Architecture
 
@@ -23,15 +27,16 @@ GHA workflow: score.yml
   |     Mount same EBS -> start OSRM + PostGIS -> fetch OI release
   |     Run oi-score -> output reachability CSV
   |
-  +-- Upload CSV as GitHub release artifact (~28 MB)
+  +-- Upload CSV as GitHub release artifact
   +-- Delete ephemeral EBS volume
-  +-- Send repository_dispatch to downstream consumer
+  +-- Send repository_dispatch to the configured downstream consumer
+      (repo variable DOWNSTREAM_DISPATCH_REPO; skipped when unset)
 ```
 
 ### Key Properties
 
 - **No persistent infrastructure.** EBS volume is created per pipeline run and deleted on completion. No lingering resources.
-- **osm-build uses on-demand instances.** OSRM extract/contract is not resumable -- a spot interruption would lose 6 hours of work.
+- **osm-build uses on-demand instances.** OSRM extract/contract is not resumable -- a spot interruption would lose hours of work.
 - **Scoring uses spot instances with 3 retries.** Scoring is resumable (snap hints cached, rows upserted). Spot interruptions are handled gracefully.
 - **Output is CSV, not pgdump.** Eliminates PostGIS dependency from downstream consumers.
 - **Safety rails:** Batch job timeouts (8h/6h), GHA workflow timeout (16h), CloudWatch billing alarm ($50/mo), EBS cleanup in always-run step.
@@ -40,35 +45,25 @@ GHA workflow: score.yml
 
 ```
 openinterstate-reachability/
-  .github/
-    workflows/
-      score.yml          # Main workflow: osm-build + score + release
+  .github/workflows/
+    score.yml            # Main workflow: osm-build + score + release
+    docker-build.yml     # Tool image build/push to ghcr
   docker/
     Dockerfile           # oi-score + OSRM + PostgreSQL (multi-stage)
+  infra/
+    cloudformation.yml   # Batch compute environments, roles, queue, alarms
   scripts/
     osm-build.sh         # Download PBF, filter, build OSRM
     score.sh             # Load seed, run scoring, output CSV
     create-ebs.sh        # AWS CLI: create + tag EBS volume
     delete-ebs.sh        # AWS CLI: delete EBS volume
+    mount-ebs.sh         # Container-level EBS attach via IMDSv2
+    unmount-ebs.sh       # Container-level EBS detach
     submit-batch-job.sh  # AWS CLI: submit Batch job with EBS attachment
-  CLAUDE.md
-  README.md
+    setup-aws.sh         # One-time AWS account bootstrap
+  src/                   # Rust scoring pipeline (exit_poi_linker)
+  datapackage.json       # Schema for published tables (Data Package standard)
 ```
-
-## Proposal
-
-The full pipeline proposal with detailed implementation steps, cost estimates, and migration path is at:
-`/Users/tjohnell/projects/telegram-claude/pipeline-proposal.md`
-
-Read this document to understand the full context, decisions made, and phased implementation plan.
-
-## Behavior
-
-- Keep responses concise and mobile-friendly (Telegram messages)
-- Use plain text formatting unless markdown genuinely helps
-- Frank is the coordinator bot (@FrankieClaudeBot). When he delegates tasks to you, execute them and report back.
-- Read `journal.md` at the start of every session to catch up on prior work.
-- When significant work is completed, append a summary to `journal.md`.
 
 ## Related Projects
 
@@ -76,7 +71,7 @@ Read this document to understand the full context, decisions made, and phased im
 
 ## AWS Resources
 
-- Batch Compute Environment: openinterstate-reachability-compute
+- Batch Compute Environments: openinterstate-reachability-compute-ondemand-v2, openinterstate-reachability-compute-spot
 - Batch Job Queue: openinterstate-reachability-queue
 - Job Definitions: openinterstate-reachability-osm-build, openinterstate-reachability-score
 - S3 Bucket: openinterstate-reachability-staging (7-day lifecycle)
@@ -88,8 +83,7 @@ Read this document to understand the full context, decisions made, and phased im
 - OSRM CONUS dataset: ~82 GB (mldgr file alone is 7 GB)
 - OSRM needs ~16 GB RAM for CONUS MLD routing
 - Scoring runs 16 parallel OSRM table requests
-- ~467k exit-POI pairs to score
-- Scoring duration: ~21 minutes on r6i.xlarge
-- osm-build (extract + partition + customize): ~6 hours on r6i.2xlarge
-- Reachability CSV output: ~28 MB
+- Pair count and scoring duration scale with the OpenInterstate release's
+  exit-place links (hundreds of thousands of pairs, tens of minutes on
+  r6i.xlarge)
 - US PBF download: ~11 GB from Geofabrik

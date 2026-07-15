@@ -368,11 +368,13 @@ jobs:
           done
 
       # ─── Dispatch to downstream consumer ─────────────────────
-      - name: Dispatch to downstream app repo
-        if: success()
+      # The consumer repo is configuration, not code: set the repository
+      # variable DOWNSTREAM_DISPATCH_REPO (owner/repo). Skipped when unset.
+      - name: Dispatch to downstream consumer
+        if: success() && vars.DOWNSTREAM_DISPATCH_REPO != ''
         env:
           GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
         run: |
-          gh api repos/tldev/pike/dispatches \
+          gh api "repos/${{ vars.DOWNSTREAM_DISPATCH_REPO }}/dispatches" \
             -f event_type=reachability-release \
             -f "client_payload[release_tag]=${{ steps.release.outputs.tag }}"
