@@ -1,0 +1,67 @@
+{
+  "$schema": "https://datapackage.org/profiles/2.0/datapackage.json",
+  "name": "openinterstate-reachability",
+  "title": "OpenInterstate Reachability",
+  "description": "Drive-time reachability scores between US interstate exits and nearby places, computed with OSRM against an OpenInterstate release.",
+  "version": "score-20260326-6c28d57",
+  "homepage": "https://openinterstate.org",
+  "licenses": [
+    {
+      "name": "ODbL-1.0",
+      "title": "Open Data Commons Open Database License 1.0",
+      "path": "https://opendatacommons.org/licenses/odbl/1-0/"
+    }
+  ],
+  "sources": [
+    {
+      "title": "OpenInterstate release-2026-03-25-gha-14",
+      "path": "https://github.com/tldev/openinterstate/releases/tag/release-2026-03-25-gha-14"
+    }
+  ],
+  "resources": [
+    {
+      "name": "reachability",
+      "path": "reachability.csv",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "description": "OSRM driving distance, duration, and a score per exit-place pair.",
+      "schema": {
+        "primaryKey": ["exit_id", "place_id"],
+        "fields": [
+          { "name": "exit_id", "type": "string", "description": "Exit being scored. Joins corridor_exits.exit_id in the core release." },
+          { "name": "place_id", "type": "string", "description": "Place being scored. Joins places.place_id in the core release." },
+          { "name": "route_distance_m", "type": "integer", "description": "OSRM driving distance in meters. Empty when the pair is unreachable." },
+          { "name": "route_duration_s", "type": "integer", "description": "OSRM driving time in seconds. Empty when the pair is unreachable." },
+          { "name": "reachable", "type": "boolean", "trueValues": ["t"], "falseValues": ["f"], "description": "Whether OSRM found a driving route between the pair (t or f)." },
+          { "name": "reachability_score", "type": "number", "description": "0 to 100, higher is easier to reach. Penalized by route distance and exit-to-place offset. 0 when unreachable." },
+          { "name": "reachability_confidence", "type": "number", "description": "Confidence in the score from 0 to 1. Decreases with route distance." },
+          { "name": "provider", "type": "string", "description": "Routing engine that scored the pair, currently osrm." },
+          { "name": "provider_dataset_version", "type": "string", "description": "Provider dataset version when recorded. May be empty." },
+          { "name": "updated_at", "type": "datetime", "format": "any", "description": "When the pair was scored, UTC." }
+        ]
+      }
+    },
+    {
+      "name": "osrm_snap_hints",
+      "path": "osrm_snap_hints.csv",
+      "format": "csv",
+      "mediatype": "text/csv",
+      "description": "Snapped coordinates and routing hints for incremental scoring runs.",
+      "schema": {
+        "fields": [
+          { "name": "source_scope", "type": "string", "description": "Source scope for the endpoint, like product." },
+          { "name": "endpoint_kind", "type": "string", "description": "Kind of snapped endpoint, like exit." },
+          { "name": "endpoint_id", "type": "string", "description": "OSM-derived identifier of the endpoint." },
+          { "name": "dataset_key", "type": "string", "description": "Key for the snapping dataset and config that produced the hint." },
+          { "name": "input_lon", "type": "number", "description": "Original longitude before snapping, WGS84." },
+          { "name": "input_lat", "type": "number", "description": "Original latitude before snapping, WGS84." },
+          { "name": "snapped_lon", "type": "number", "description": "Longitude snapped onto the routable road network." },
+          { "name": "snapped_lat", "type": "number", "description": "Latitude snapped onto the routable road network." },
+          { "name": "hint", "type": "string", "description": "Opaque OSRM hint token reused to skip re-snapping on later runs." },
+          { "name": "snapped_distance_m", "type": "number", "description": "Distance moved from the input point to the snapped point in meters." },
+          { "name": "updated_at", "type": "datetime", "format": "any", "description": "When the hint was produced, UTC." }
+        ]
+      }
+    }
+  ]
+}
